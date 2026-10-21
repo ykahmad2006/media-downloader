@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose your download | Fetchly</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Raleway:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.7 "Open Sans",Arial,sans-serif;color:#666;background:#f2f2f3}
+h1,h2,h3,.logo,.btn{font-family:Raleway,Arial,sans-serif}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
+.hero{background:radial-gradient(ellipse at 30% 0,#4a5058 0,transparent 60%),linear-gradient(#24272b,#15171a);color:#fff;padding:20px 0 44px}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:34px;font-size:13px;color:#bbb}
+.logo{font-size:26px;font-weight:700;color:#fff}.logo i{color:#e1251b;font-style:normal}
+h1{font-size:clamp(24px,4vw,34px);letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.media{display:flex;gap:18px;align-items:center;background:#fff;padding:16px;margin:-28px 0 26px;box-shadow:0 4px 16px #0002}
+.media img{width:150px;aspect-ratio:16/9;object-fit:cover;background:#2a2a2b}
+.media h2{font-size:17px;color:#2a2a2b;line-height:1.3}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;margin:26px 0 10px}
+.opt{display:flex;align-items:center;gap:14px;background:#fff;padding:12px 16px;margin-bottom:8px;border-left:4px solid #e1251b}
+.opt div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt span{font-size:13px}
+.opt em{font-style:normal;font-weight:600;color:#2a2a2b;white-space:nowrap}
+.btn{height:42px;padding:0 22px;border:0;background:#e1251b;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:1px;cursor:pointer}
+.btn:hover{background:#c41d14}.btn:disabled{background:#999;cursor:wait}
+#msg{margin:18px 0;min-height:26px;font-weight:600}#msg.ok{color:#2e8b3d}#msg.err{color:#c41d14}
+.note{font-size:13px;border-top:1px solid #ddd;padding:18px 0 40px}
+footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
+@media(max-width:620px){.media{flex-direction:column;align-items:flex-start}.opt{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="hero"><div class="wrap">
+  <div class="bar"><a class="logo" href="/">fetch<i>ly</i></a><a href="/">&larr; Try another link</a></div>
+  <h1>Choose your download</h1>
+</div></div>
+<div class="wrap">
+  <div class="media">
+    {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer">{% endif %}
+    <div><h2>{{ d.title }}</h2><p>{{ d.by }}{% if d.by and d.duration %} · {% endif %}{% if d.duration %}{{ d.duration // 60 }}:{{ '%02d'|format(d.duration % 60) }}{% endif %}</p></div>
+  </div>
+  {% for kind, name in [("video","Video"),("audio","Audio"),("gif","GIF, small enough for WhatsApp and X"),("zip","Photos and slideshows")] %}
+    {% set items = d.options|selectattr("kind","equalto",kind)|list %}
+    {% if items %}<h3>{{ name }}</h3>
+      {% for o in items %}
+      <div class="opt"><div><b>{{ o.label }}</b><span>{{ o.detail }}</span></div>
+        <em>{% if o.size %}about {{ o.size }} MB{% else %}size shown after download{% endif %}</em>
+        <button class="btn" data-id="{{ o.id }}">Download</button></div>
+      {% endfor %}
+    {% endif %}
+  {% endfor %}
+  <p id="msg"></p>
+  <p class="note">Sizes are estimates and may change a little. Only download videos you have the right to save: your own, Creative Commons, or ones the owner allows.</p>
+</div>
+<footer><div class="wrap">Fetchly · A small tool for saving videos you’re allowed to keep.</div></footer>
+<script>
+const token="{{ token }}",msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn");
+btns.forEach(b=>b.onclick=async()=>{
+  const old=b.textContent;
+  btns.forEach(x=>x.disabled=true);b.textContent="Preparing";
+  msg.className="";msg.textContent="Getting your file ready. Bigger sizes take longer.";
+  try{
+    const r=await fetch("/api/fetch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,option:b.dataset.id})});
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error);
+    msg.className="ok";msg.textContent="Done. Your download is starting.";
+    const a=document.createElement("a");a.href=d.file;a.click();
+  }catch(err){
+    msg.className="err";
+    msg.textContent=err instanceof TypeError?"Couldn’t reach the server. Check the terminal where app.py is running.":err.message;
+  }
+  btns.forEach(x=>x.disabled=false);b.textContent=old;
+});
+</script>
+</body>
+</html>
