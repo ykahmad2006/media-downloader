@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fetchly | Download a video with just its link</title>
+<meta name="description" content="Paste a link from YouTube, X, TikTok or Instagram, pick a quality and size, and save the file. No sign-up.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e1251b'/%3E%3Cpath d='M32 14v26m-12-12 12 12 12-12M18 50h28' stroke='%23fff' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Raleway:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -65,6 +67,10 @@ details p{margin-top:8px}
 footer{background:#2b2b2c;color:#999;font-size:13px;padding:36px 0}
 footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
 footer .logo{color:#fff;font-size:22px}
+.btn.ghost{background:#3b4047;font-weight:600}.btn.ghost:hover{background:#4a5058}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.btn:focus-visible,#url:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #fff;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){ #bar:after{animation:none;width:100%;opacity:.5} html{scroll-behavior:auto}}
 @media(max-width:720px){.g3,.tiles,.two{grid-template-columns:1fr}.nav ul{display:none}#url,#mode,.btn{flex:1 1 100%;border-radius:0}}
 </style>
 </head>
@@ -79,12 +85,14 @@ footer .logo{color:#fff;font-size:22px}
     <h1>Save a video with just its link</h1>
     <p class="lead">Found a video you’re allowed to keep? Paste its address below, then pick the quality and size you want. That’s the whole process.</p>
     <form id="f">
-      <input id="url" type="text" placeholder="Paste a YouTube, X, TikTok or Instagram link" autocomplete="off">
+      <label class="sr" for="url">Link to the video</label>
+      <input id="url" type="url" inputmode="url" placeholder="Paste a YouTube, X, TikTok or Instagram link" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn ghost" id="paste" type="button">Paste</button>
       <button class="btn" id="go">Get options</button>
     </form>
     <div id="bar" hidden></div>
-    <p id="msg"></p>
-    <div class="chips"><span class="chip" data-s="YouTube">YouTube</span><span class="chip" data-s="X">X</span><span class="chip" data-s="TikTok">TikTok</span><span class="chip" data-s="Instagram">Instagram</span><span class="chip" data-s="Vimeo">Vimeo</span><span class="chip" data-s="Facebook">Facebook</span><span class="chip" data-s="Reddit">Reddit</span></div>
+    <p id="msg" role="status" aria-live="polite"></p>
+    <div class="chips"><span class="chip" data-s="YouTube">YouTube</span><span class="chip" data-s="X">X</span><span class="chip" data-s="TikTok">TikTok</span><span class="chip" data-s="Instagram">Instagram</span></div>
   </div>
 </div>
 
@@ -103,7 +111,7 @@ footer .logo{color:#fff;font-size:22px}
     <div class="tile"><b>01</b>You don’t need an account or an app.</div>
     <div class="tile"><b>02</b>We take the best quality the site offers.</div>
     <div class="tile"><b>03</b>Pick video, audio, or a GIF for WhatsApp and X.</div>
-    <div class="tile"><b>04</b>Works with YouTube, X, TikTok, Instagram and plenty more.</div>
+    <div class="tile"><b>04</b>Works with YouTube, X, TikTok and Instagram.</div>
     <div class="tile"><b>05</b>Your file is deleted from our server once you’ve downloaded it.</div>
     <div class="tile"><b>06</b>Meant for videos you have the right to save.</div>
   </div>
@@ -120,13 +128,15 @@ footer .logo{color:#fff;font-size:22px}
 
 <section class="grey" id="sites"><div class="wrap">
   <h2>Where it <span>works</span></h2>
-  <p class="sub">Paste a link from any of these, or try another site. If it plays in a browser, there’s a fair chance we can fetch it.</p>
-  <div class="sites"><span>YouTube</span><span>X</span><span>TikTok</span><span>Vimeo</span><span>Facebook</span><span>Reddit</span><span>Dailymotion</span></div>
+  <p class="sub">Four sites, done well. Posts, reels and carousels on Instagram work too. Stories need a login, so they often won’t.</p>
+  <div class="sites"><span>YouTube</span><span>X</span><span>TikTok</span><span>Instagram</span></div>
 </div></section>
 
 <section id="faq"><div class="wrap" style="max-width:720px">
   <h2>Common <span>questions</span></h2>
   <details><summary>My link didn’t work. Why?</summary><p>The video may be private, deleted, age-restricted, or on a site we can’t reach. Check that it plays in your browser while you’re logged out, then try again.</p></details>
+  <details><summary>Why only these four sites?</summary><p>They’re the ones we test and keep working. Links from other sites are turned away on purpose, which also keeps the service safe to run.</p></details>
+  <details><summary>Why did my Instagram story fail?</summary><p>Stories are only visible to logged-in viewers, and we never ask for your login. Posts, reels and carousels that anyone can open work fine.</p></details>
   <details><summary>Is there a size limit?</summary><p>Yes. Files bigger than 1 GB are turned away so the site stays quick for everyone.</p></details>
   <details><summary>Do you keep my files?</summary><p>No. Each file is deleted right after you download it, and we never ask for your name or email.</p></details>
 </div></section>
@@ -144,13 +154,19 @@ footer .logo{color:#fff;font-size:22px}
 <script>
 const f=document.getElementById("f"),url=document.getElementById("url"),go=document.getElementById("go"),
   msg=document.getElementById("msg"),bar=document.getElementById("bar");
-const sites={"youtube.com":"YouTube","youtu.be":"YouTube","x.com":"X","instagram.com":"Instagram","twitter.com":"X","tiktok.com":"TikTok","vimeo.com":"Vimeo","facebook.com":"Facebook","fb.watch":"Facebook","reddit.com":"Reddit"};
+const sites={"youtube.com":"YouTube","youtu.be":"YouTube","x.com":"X","twitter.com":"X","instagram.com":"Instagram","instagr.am":"Instagram","tiktok.com":"TikTok"};
+const paste=document.getElementById("paste");
 function say(t,c){msg.textContent=t;msg.className=c||""}
 function detect(v){try{const h=new URL(v).hostname.replace("www.","");for(const k in sites)if(h===k||h.endsWith("."+k))return sites[k]}catch(e){}return ""}
 url.addEventListener("input",()=>{
   const s=detect(url.value.trim());
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.s===s));
-  say(s?"That looks like a "+s+" link. Good to go.":"");
+  say(s==="Instagram"?"That looks like an Instagram link. Posts and reels work, stories usually don’t.":s?"That looks like a "+s+" link. Good to go.":"");
+});
+if(!(navigator.clipboard&&navigator.clipboard.readText))paste.hidden=true;
+paste.addEventListener("click",async()=>{
+  try{url.value=(await navigator.clipboard.readText()).trim();url.dispatchEvent(new Event("input"));url.focus()}
+  catch(e){say("Your browser blocked the paste button. Press and hold in the box, then choose Paste.","err")}
 });
 f.addEventListener("submit",async e=>{
   e.preventDefault();
@@ -165,7 +181,7 @@ f.addEventListener("submit",async e=>{
     say("Found it. Taking you to your options...","ok");
     go.disabled=false;go.textContent="Get options";bar.hidden=true;
     location.href="/options/"+d.token;return;
-  }catch(err){say(err instanceof TypeError?"Couldn’t reach the server. Check the terminal where app.py is running, it may have stopped.":(err.message||"Something went wrong. Please try again."),"err")}
+  }catch(err){say(err instanceof TypeError?"Couldn’t reach the server. Check your connection and try again.":(err.message||"Something went wrong. Please try again."),"err")}
   go.disabled=false;go.textContent="Get options";bar.hidden=true;
 });
 </script>

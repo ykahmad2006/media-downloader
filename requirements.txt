@@ -1,0 +1,5 @@
+flask
+flask-limiter
+gunicorn
+yt-dlp[default]
+gallery-dl

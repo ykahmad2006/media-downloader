@@ -1,0 +1,34 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true                  # cleans up stray ffmpeg processes
+    mem_limit: 1536m            # one runaway conversion cannot take the whole server
+    cpus: 1.5
+    environment:
+      MAX_JOBS: "3"
+      MAX_MB: "1000"
+      ACCESS_CODE: ${ACCESS_CODE:-}       # set in .env: asks visitors for a passcode
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}   # empty = YouTube, X, TikTok, Instagram only. * = any public site
+      # COOKIES_FILE: "/run/cookies.txt"
+    volumes:
+      - scratch:/tmp            # temporary downloads live here, not in the container layer
+      # - ./cookies.txt:/run/cookies.txt:ro
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  caddy_data:
+  scratch:

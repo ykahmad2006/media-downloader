@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
 <title>Choose your download | Fetchly</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e1251b'/%3E%3Cpath d='M32 14v26m-12-12 12 12 12-12M18 50h28' stroke='%23fff' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Raleway:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0}
@@ -20,14 +23,25 @@ h1{font-size:clamp(24px,4vw,34px);letter-spacing:2px;text-transform:uppercase;fo
 .media h2{font-size:17px;color:#2a2a2b;line-height:1.3}
 h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;margin:26px 0 10px}
 .opt{display:flex;align-items:center;gap:14px;background:#fff;padding:12px 16px;margin-bottom:8px;border-left:4px solid #e1251b}
+.opt.big{border-left-color:#bbb;opacity:.65}
 .opt div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt span{font-size:13px}
 .opt em{font-style:normal;font-weight:600;color:#2a2a2b;white-space:nowrap}
+.tag{display:inline-block;margin-left:8px;padding:0 8px;font:700 10px/18px Raleway;letter-spacing:1px;text-transform:uppercase;background:#e1251b;color:#fff;vertical-align:2px}
 .btn{height:42px;padding:0 22px;border:0;background:#e1251b;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:1px;cursor:pointer}
-.btn:hover{background:#c41d14}.btn:disabled{background:#999;cursor:wait}
-#msg{margin:18px 0;min-height:26px;font-weight:600}#msg.ok{color:#2e8b3d}#msg.err{color:#c41d14}
+.btn:hover{background:#c41d14}.btn:disabled{background:#999;cursor:not-allowed}
+.btn:focus-visible,a:focus-visible{outline:3px solid #2a2a2b;outline-offset:2px}
+.job{background:#fff;padding:16px 18px;margin:22px 0 0;border-left:4px solid #2a2a2b;box-shadow:0 4px 16px #0001}
+.job .row{display:flex;justify-content:space-between;gap:12px;font:600 14px Raleway;color:#2a2a2b}
+.track{height:8px;background:#e6e6e8;margin-top:10px;overflow:hidden}
+.fill{height:100%;width:0;background:#e1251b;transition:width .4s}
+.fill.ind{width:35%;animation:slide 1.1s infinite ease-in-out}
+@keyframes slide{from{margin-left:-35%}to{margin-left:100%}}
+#msg{margin:16px 0;min-height:26px;font-weight:600}#msg.ok{color:#2e8b3d}#msg.err{color:#c41d14}
+#msg a{text-decoration:underline}
 .note{font-size:13px;border-top:1px solid #ddd;padding:18px 0 40px}
 footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
 @media(max-width:620px){.media{flex-direction:column;align-items:flex-start}.opt{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.fill.ind{animation:none;width:100%;opacity:.5}}
 </style>
 </head>
 <body>
@@ -44,34 +58,81 @@ footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
     {% set items = d.options|selectattr("kind","equalto",kind)|list %}
     {% if items %}<h3>{{ name }}</h3>
       {% for o in items %}
-      <div class="opt"><div><b>{{ o.label }}</b><span>{{ o.detail }}</span></div>
-        <em>{% if o.size %}about {{ o.size }} MB{% else %}size shown after download{% endif %}</em>
-        <button class="btn" data-id="{{ o.id }}">Download</button></div>
+      {% set big = (o.size or 0) > max_mb %}
+      <div class="opt{% if big %} big{% endif %}"><div><b>{{ o.label }}{% if kind == "video" and loop.first and not big %}<span class="tag">Best quality</span>{% endif %}</b><span>{{ o.detail }}</span></div>
+        <em>{% if big %}over the {{ max_mb }} MB limit{% elif o.size %}about {{ o.size }} MB{% else %}size shown after download{% endif %}</em>
+        <button class="btn" data-id="{{ o.id }}" data-big="{{ 1 if big else 0 }}"{% if big %} disabled{% endif %}>Download</button></div>
       {% endfor %}
     {% endif %}
   {% endfor %}
-  <p id="msg"></p>
-  <p class="note">Sizes are estimates and may change a little. Only download videos you have the right to save: your own, Creative Commons, or ones the owner allows.</p>
+
+  <div class="job" id="job" hidden>
+    <div class="row"><span id="stage">Starting</span><span id="pct"></span></div>
+    <div class="track"><div class="fill ind" id="fill"></div></div>
+  </div>
+  <p id="msg" role="status" aria-live="polite"></p>
+  <p class="note">Sizes are estimates and may change a little. You can leave this page open while we work. Only download videos you have the right to save: your own, Creative Commons, or ones the owner allows.</p>
 </div>
 <footer><div class="wrap">Fetchly · A small tool for saving videos you’re allowed to keep.</div></footer>
 <script>
-const token="{{ token }}",msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn");
+const token="{{ token }}",KEY="fetchly-job-"+token,
+  msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn"),
+  job=document.getElementById("job"),stage=document.getElementById("stage"),
+  pct=document.getElementById("pct"),fill=document.getElementById("fill");
+let misses=0;
+
+const keep=(v)=>{try{v?sessionStorage.setItem(KEY,v):sessionStorage.removeItem(KEY)}catch(e){}};
+const kept=()=>{try{return sessionStorage.getItem(KEY)}catch(e){return null}};
+function lock(on){btns.forEach(b=>b.disabled=on||b.dataset.big==="1")}
+function say(t,c){msg.className=c||"";msg.textContent=t}
+function paint(s){
+  job.hidden=false;
+  stage.textContent=s.stage||"Working";
+  if(s.percent==null){fill.className="fill ind";fill.style.width="";pct.textContent=""}
+  else{fill.className="fill";fill.style.width=s.percent+"%";pct.textContent=s.percent+"%"}
+}
+function stop(){keep(null);lock(false)}
+function fail(text){stop();job.hidden=true;say(text,"err")}
+
+async function poll(id,quiet){
+  try{
+    const r=await fetch("/api/job/"+id);
+    const d=await r.json();
+    if(!d.ok){stop();job.hidden=true;if(!quiet)say(d.error,"err");return}
+    misses=0;
+    if(d.state==="error")return fail(d.error||"That download failed. Try another size.");
+    if(d.state==="done"){
+      paint({stage:"Ready",percent:100});stop();
+      msg.className="ok";msg.innerHTML="Done. Your download is starting. If nothing happens, <a href=\""+d.file+"\">tap here to save it</a>.";
+      const a=document.createElement("a");a.href=d.file;a.click();
+      return;
+    }
+    paint(d);
+    setTimeout(()=>poll(id,quiet),1000);
+  }catch(err){
+    if(++misses<4)return setTimeout(()=>poll(id,quiet),2000);   // a short network blip is fine
+    fail("We lost contact with the server. Check your connection and try again.");
+  }
+}
+
 btns.forEach(b=>b.onclick=async()=>{
-  const old=b.textContent;
-  btns.forEach(x=>x.disabled=true);b.textContent="Preparing";
-  msg.className="";msg.textContent="Getting your file ready. Bigger sizes take longer.";
+  lock(true);say("");misses=0;
+  paint({stage:"Starting",percent:null});
   try{
     const r=await fetch("/api/fetch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,option:b.dataset.id})});
     const d=await r.json();
     if(!d.ok)throw new Error(d.error);
-    msg.className="ok";msg.textContent="Done. Your download is starting.";
-    const a=document.createElement("a");a.href=d.file;a.click();
+    keep(d.job);poll(d.job,false);
   }catch(err){
-    msg.className="err";
-    msg.textContent=err instanceof TypeError?"Couldn’t reach the server. Check the terminal where app.py is running.":err.message;
+    job.hidden=true;lock(false);
+    say(err instanceof TypeError?"Couldn’t reach the server. Check your connection and try again."
+      :err instanceof SyntaxError?"The server sent an unexpected reply. Please try again."
+      :err.message,"err");
   }
-  btns.forEach(x=>x.disabled=false);b.textContent=old;
 });
+
+const saved=kept();             // came back to a page with a download in progress
+if(saved){lock(true);paint({stage:"Checking your download"});poll(saved,true)}
 </script>
 </body>
 </html>

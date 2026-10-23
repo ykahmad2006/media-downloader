@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+downloads
+X_Downloads
+TikTok_Downloads
+.git
+.env
+.env.example
+cookies.txt
+*.cookies

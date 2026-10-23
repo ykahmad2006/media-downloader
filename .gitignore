@@ -5,3 +5,6 @@ __pycache__/
 venv/
 downloads/
 X_Downloads/
+TikTok_Downloads/
+cookies.txt
+*.cookies
