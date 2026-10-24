@@ -23,6 +23,7 @@ h1{font-size:clamp(24px,4vw,34px);letter-spacing:2px;text-transform:uppercase;fo
 .media h2{font-size:17px;color:#2a2a2b;line-height:1.3}
 h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;margin:26px 0 10px}
 .opt{display:flex;align-items:center;gap:14px;background:#fff;padding:12px 16px;margin-bottom:8px;border-left:4px solid #e1251b}
+.pv{width:54px;height:96px;object-fit:cover;background:#2a2a2b;flex:none}
 .opt.big{border-left-color:#bbb;opacity:.65}
 .opt div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt span{font-size:13px}
 .opt em{font-style:normal;font-weight:600;color:#2a2a2b;white-space:nowrap}
@@ -54,12 +55,12 @@ footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
     {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer">{% endif %}
     <div><h2>{{ d.title }}</h2><p>{{ d.by }}{% if d.by and d.duration %} · {% endif %}{% if d.duration %}{{ d.duration // 60 }}:{{ '%02d'|format(d.duration % 60) }}{% endif %}</p></div>
   </div>
-  {% for kind, name in [("video","Video"),("audio","Audio"),("gif","GIF, small enough for WhatsApp and X"),("zip","Photos and slideshows")] %}
+  {% for kind, name in [("video","Video"),("audio","Audio"),("gif","GIF, small enough for WhatsApp and X"),("item","Each photo and video on its own"),("zip","Everything in one go")] %}
     {% set items = d.options|selectattr("kind","equalto",kind)|list %}
     {% if items %}<h3>{{ name }}</h3>
       {% for o in items %}
       {% set big = (o.size or 0) > max_mb %}
-      <div class="opt{% if big %} big{% endif %}"><div><b>{{ o.label }}{% if kind == "video" and loop.first and not big %}<span class="tag">Best quality</span>{% endif %}</b><span>{{ o.detail }}</span></div>
+      <div class="opt{% if big %} big{% endif %}">{% if o.thumb %}<img class="pv" src="{{ o.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}<div><b>{{ o.label }}{% if kind == "video" and loop.first and not big %}<span class="tag">Best quality</span>{% endif %}</b><span>{{ o.detail }}{% if o.when %}<span class="when" data-t="{{ o.when }}"></span>{% endif %}</span></div>
         <em>{% if big %}over the {{ max_mb }} MB limit{% elif o.size %}about {{ o.size }} MB{% else %}size shown after download{% endif %}</em>
         <button class="btn" data-id="{{ o.id }}" data-big="{{ 1 if big else 0 }}"{% if big %} disabled{% endif %}>Download</button></div>
       {% endfor %}
@@ -80,6 +81,10 @@ const token="{{ token }}",KEY="fetchly-job-"+token,
   job=document.getElementById("job"),stage=document.getElementById("stage"),
   pct=document.getElementById("pct"),fill=document.getElementById("fill");
 let misses=0;
+document.querySelectorAll(".when").forEach(e=>{      // show when each story was posted, in the visitor's own time
+  const d=new Date(e.dataset.t);
+  if(!isNaN(d))e.textContent=" · posted "+d.toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});
+});
 
 const keep=(v)=>{try{v?sessionStorage.setItem(KEY,v):sessionStorage.removeItem(KEY)}catch(e){}};
 const kept=()=>{try{return sessionStorage.getItem(KEY)}catch(e){return null}};

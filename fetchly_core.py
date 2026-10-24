@@ -7,7 +7,9 @@ FFmpeg is recommended: it enables HD merging, MP3 and GIF options.
 """
 
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,8 +22,12 @@ from yt_dlp.utils import DownloadError
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 HAS_GALLERY = importlib.util.find_spec("gallery_dl") is not None
-COOKIES_FILE = os.environ.get("COOKIES_FILE")  # servers have no browser: export a cookies.txt instead
-COOKIES_BROWSER = None  # "chrome", "firefox" or "edge": the browser you're logged in with (your own PC only)
+# Login cookies for sites that want one (Instagram stories). Best way: export a cookies.txt from your browser and
+# save it next to this file. It is found automatically and works even while the browser is open.
+# On a server, set COOKIES_FILE to its path instead.
+_LOCAL_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+COOKIES_FILE = os.environ.get("COOKIES_FILE") or (_LOCAL_COOKIES if os.path.isfile(_LOCAL_COOKIES) else None)
+COOKIES_BROWSER = None  # last resort: read cookies straight from "firefox"/"chrome"/"edge". Unreliable while that browser is open
 MAX_MB = int(os.environ.get("MAX_MB", "1000"))             # biggest file we will save
 TOOL_TIMEOUT = int(os.environ.get("TOOL_TIMEOUT", "600"))  # seconds before ffmpeg or gallery-dl is stopped
 MAX_ITEMS = 30                                             # most photos or videos taken from one post
@@ -36,6 +42,7 @@ GIF_PRESETS = {
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp")
 AUDIO_EXT = (".mp3", ".m4a", ".aac", ".opus", ".wav")
+VIDEO_EXT = ("mp4", "webm", "mov", "m4v")
 
 
 def opt(oid, kind, label, detail, size):
@@ -125,6 +132,51 @@ def gallery_supports(url):
         return True  # if the check itself breaks, keep the old behaviour
 
 
+def cookie_args(cookies):
+    """gallery-dl's way of being given the login cookies."""
+    if cookies:
+        return ["--cookies", cookies]
+    if COOKIES_BROWSER:
+        return ["--cookies-from-browser", COOKIES_BROWSER]
+    return []
+
+
+def gallery_items(url, cookies):
+    """List the separate photos and videos of a post or story WITHOUT downloading them."""
+    cmd = [sys.executable, "-m", "gallery_dl", "-j", "--range", f"1-{MAX_ITEMS}", *cookie_args(cookies), url]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        data = json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        raise DownloadError("Listing that post took too long.")
+    except ValueError:
+        raise DownloadError("Could not list that post. " + result.stderr[-200:])
+    # gallery-dl's JSON: [2, folder info] and [3, file url, file info] for every photo or video
+    items = [e[-1] for e in data if isinstance(e, list) and len(e) >= 3 and e[0] == 3 and isinstance(e[-1], dict)]
+    if not items:
+        raise DownloadError("No photos or videos found. " + result.stderr[-200:])
+    return items
+
+
+def item_options(items):
+    """One download choice per photo or video, each in the best quality the site gives."""
+    options = []
+    for n, meta in enumerate(items, 1):
+        ext = (meta.get("extension") or "").lower()
+        video = ext in VIDEO_EXT
+        w, h = meta.get("width"), meta.get("height")
+        detail = " · ".join(x for x in [(ext or "file").upper(), f"{w}x{h}" if w and h else "", "best quality"] if x)
+        choice = opt(f"item{n}", "item", f"{'Video' if video else 'Photo'} {n} of {len(items)}", detail, None)
+        cover = meta.get("display_url") or ""          # the still picture of a photo, or the cover frame of a video
+        if cover.startswith("https://"):
+            choice["thumb"] = cover
+        when = re.match(r"(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)", str(meta.get("date") or ""))
+        if when:                                        # gallery-dl gives UTC; the page shows it in the visitor's own time
+            choice["when"] = f"{when.group(1)}T{when.group(2)}Z"
+        options.append(choice)
+    return options
+
+
 def analyze(url):
     """Look at a link without downloading. Returns title, thumbnail and options."""
     info, options, failure = {}, [], None
@@ -137,15 +189,27 @@ def analyze(url):
             failure = error
             if not HAS_GALLERY:
                 raise
+        has_video = any(o["kind"] == "video" for o in options)
+        # Instagram stories and carousels: list every photo and video on its own
+        items = []
+        if "instagram.com" in url and gallery_supports(url):
+            try:
+                items = gallery_items(url, cookies)
+            except Exception as error:
+                print("Could not list the items of that post:", error, file=sys.stderr)  # shows up in the server log
+                failure = failure or error
+    show_items = len(items) >= 2 or (len(items) == 1 and not has_video)
+    if show_items:
+        options += item_options(items)
     # Photos, slideshows, carousels and stories come from gallery-dl
-    has_video = any(o["kind"] == "video" for o in options)
-    if gallery_supports(url) and ("instagram.com" in url or not has_video):
+    if gallery_supports(url) and ("instagram.com" in url or not has_video) and not (show_items and len(items) == 1):
+        what = "story" if "/stories/" in url else "post"
         if not HAS_FFMPEG:
-            label, detail = "All photos and videos in this post", "Saved as a ZIP"
+            label, detail = f"All photos and videos in this {what}", "Saved as one ZIP"
         elif not has_video and "instagram.com" not in url:
             label, detail = "Slideshow video (MP4)", "Your photos set to the original song"
         else:
-            label, detail = "Everything in this post", "Photo slideshows come as an MP4, mixed posts as a ZIP"
+            label, detail = f"Everything in this {what} at once", "One file: a ZIP, or an MP4 slideshow if all are photos"
         options.append(opt("gallery", "zip", label, detail, None))
     if not options:
         raise failure or DownloadError("No downloadable media found.")  # keeps the real reason for the log
@@ -240,15 +304,13 @@ def slideshow(url, images, song, job_dir, cookies, say=no_progress):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def gallery(url, job_dir, cookies, say=no_progress):
-    """gallery-dl: every photo/video of a post. All photos become an MP4 slideshow, otherwise a ZIP."""
+def gallery(url, job_dir, cookies, say=no_progress, only=None):
+    """gallery-dl: every photo/video of a post (All photos become an MP4 slideshow, otherwise a ZIP),
+    or just item number `only` as a single file."""
+    span = f"{only}-{only}" if only else f"1-{MAX_ITEMS}"
     cmd = [sys.executable, "-m", "gallery_dl", "-d", job_dir,
-           "--range", f"1-{MAX_ITEMS}", "--filesize-max", f"{MAX_MB}M"]
-    if cookies:
-        cmd += ["--cookies", cookies]
-    elif COOKIES_BROWSER:
-        cmd += ["--cookies-from-browser", COOKIES_BROWSER]
-    say(None, "Collecting everything in the post")
+           "--range", span, "--filesize-max", f"{MAX_MB}M", *cookie_args(cookies)]
+    say(None, "Getting that item" if only else "Collecting everything in the post")
     try:
         result = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=TOOL_TIMEOUT)
     except subprocess.TimeoutExpired:
@@ -258,8 +320,8 @@ def gallery(url, job_dir, cookies, say=no_progress):
         raise DownloadError("gallery-dl saved nothing. " + result.stderr[-200:])
     if sum(os.path.getsize(f) for f in files) > MAX_MB * 1048576:
         raise DownloadError("That post is bigger than the size limit.")
-    if len(files) == 1:
-        return files[0]
+    if only or len(files) == 1:
+        return max(files, key=os.path.getsize)
     images = sorted(f for f in files if f.lower().endswith(IMAGE_EXT))
     songs = [f for f in files if f.lower().endswith(AUDIO_EXT)]
     if HAS_FFMPEG and images and len(images) + len(songs) == len(files):
@@ -292,6 +354,8 @@ def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
     with cookie_copy() as cookies:
         if oid == "gallery":
             return gallery(url, job_dir, cookies, say)
+        if oid.startswith("item") and oid[4:].isdigit():
+            return gallery(url, job_dir, cookies, say, only=int(oid[4:]))
         opts = ydl_opts(cookies, {
             "outtmpl": os.path.join(job_dir, "%(title).100B [%(id)s].%(ext)s"),
             "max_filesize": MAX_MB * 1048576,
