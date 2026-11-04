@@ -3,3 +3,6 @@ flask-limiter
 gunicorn
 yt-dlp[default]
 gallery-dl
+requests
+pillow
+fonttools

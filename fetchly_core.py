@@ -20,6 +20,31 @@ from contextlib import contextmanager
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
+try:
+    import profilepic
+    HAS_PIC = True
+    PictureError = profilepic.PictureError
+except ImportError:
+    profilepic, HAS_PIC = None, False
+    PictureError = type("PictureError", (Exception,), {})
+
+try:
+    import tweetoverlay
+    HAS_OVERLAY = True
+    OVERLAY_THEMES, OVERLAY_POSITIONS, MAX_UPLOAD = tuple(tweetoverlay.THEMES), tweetoverlay.POSITIONS, tweetoverlay.MAX_UPLOAD
+except ImportError:
+    tweetoverlay, HAS_OVERLAY = None, False
+    OVERLAY_THEMES, OVERLAY_POSITIONS, MAX_UPLOAD = ("dark",), ("bottom",), 15 * 1024 * 1024
+
+try:                       # tweet scrolls need: pip install pillow fonttools requests
+    import tweetcard
+    HAS_CARD = True
+    CardError = tweetcard.CardError
+except ImportError:
+    tweetcard, HAS_CARD = None, False
+    CardError = type("CardError", (Exception,), {})
+FRIENDLY = (CardError, PictureError)   # errors whose message is safe to show to the visitor
+
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 HAS_GALLERY = importlib.util.find_spec("gallery_dl") is not None
 # Login cookies for sites that want one (Instagram stories). Best way: export a cookies.txt from your browser and
@@ -28,7 +53,11 @@ HAS_GALLERY = importlib.util.find_spec("gallery_dl") is not None
 _LOCAL_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 COOKIES_FILE = os.environ.get("COOKIES_FILE") or (_LOCAL_COOKIES if os.path.isfile(_LOCAL_COOKIES) else None)
 COOKIES_BROWSER = None  # last resort: read cookies straight from "firefox"/"chrome"/"edge". Unreliable while that browser is open
-MAX_MB = int(os.environ.get("MAX_MB", "1000"))             # biggest file we will save
+MAX_MB = int(os.environ.get("MAX_MB", "1000"))             # biggest file we will save in MB; 0 = no limit (the command line uses 0)
+# What "best quality" means: the tallest picture, then the smoothest frame rate, then HDR, then the stream with
+# the MOST DATA (bitrate), then the codec. Putting bitrate before codec is what finds the sharper stream.
+FORMAT_SORT = ["res", "fps", "hdr:12", "br", "size", "codec"]
+GIF_BEST_WIDTH, GIF_BEST_FPS, GIF_BEST_SECS = 1080, 30, 10   # the most a "best quality" GIF takes from a clip
 TOOL_TIMEOUT = int(os.environ.get("TOOL_TIMEOUT", "600"))  # seconds before ffmpeg or gallery-dl is stopped
 MAX_ITEMS = 30                                             # most photos or videos taken from one post
 ALLOW_GENERIC = os.environ.get("ALLOW_GENERIC") == "1"     # yt-dlp's "any website" mode, off by default
@@ -43,6 +72,7 @@ GIF_PRESETS = {
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp")
 AUDIO_EXT = (".mp3", ".m4a", ".aac", ".opus", ".wav")
 VIDEO_EXT = ("mp4", "webm", "mov", "m4v")
+SONG_EXT = ("mp3", "m4a", "aac", "opus", "wav", "ogg")
 
 
 def opt(oid, kind, label, detail, size):
@@ -113,6 +143,16 @@ def build_options(info):
     if HAS_FFMPEG:
         if dur:
             options.append(opt("a_mp3", "audio", "MP3 audio", "Plays on any phone", mb(dur * 40000)))
+        top = max((f for f in fmts if f.get("height") and has(f, "vcodec")),
+                  key=lambda f: (f["height"], f.get("fps") or 0), default=None)
+        if top:                                            # the best GIF this clip can give, from its own size and frame rate
+            src_w = top.get("width") or int(top["height"] * 16 / 9)
+            w = min(src_w, GIF_BEST_WIDTH)
+            fps = min(round(top.get("fps") or 24), GIF_BEST_FPS)
+            length = min(dur or GIF_BEST_SECS, GIF_BEST_SECS)
+            est = w * int(top["height"] * w / src_w) * fps * length * 0.3
+            options.append(opt("gif_best", "gif", "Best quality GIF",
+                               f"{w}px wide, {fps} fps, first {int(length)}s, full colour palette", mb(est)))
         if heights:
             for oid, (w, fps, secs, name) in GIF_PRESETS.items():
                 length = min(dur or secs, secs)
@@ -163,10 +203,10 @@ def item_options(items):
     options = []
     for n, meta in enumerate(items, 1):
         ext = (meta.get("extension") or "").lower()
-        video = ext in VIDEO_EXT
+        video, song = ext in VIDEO_EXT, ext in SONG_EXT
         w, h = meta.get("width"), meta.get("height")
         detail = " · ".join(x for x in [(ext or "file").upper(), f"{w}x{h}" if w and h else "", "best quality"] if x)
-        choice = opt(f"item{n}", "item", f"{'Video' if video else 'Photo'} {n} of {len(items)}", detail, None)
+        choice = opt(f"item{n}", "item", "The song from the post" if song else f"{'Video' if video else 'Photo'} {n} of {len(items)}", detail, None)
         cover = meta.get("display_url") or ""          # the still picture of a photo, or the cover frame of a video
         if cover.startswith("https://"):
             choice["thumb"] = cover
@@ -179,6 +219,14 @@ def item_options(items):
 
 def analyze(url):
     """Look at a link without downloading. Returns title, thumbnail and options."""
+    if HAS_PIC and profilepic.avatar_target(url):          # a profile or channel link: offer its picture
+        target = profilepic.avatar_target(url)
+        with cookie_copy() as cookies:
+            found = profilepic.find_picture(target, cookie_args(cookies))
+        size = f"{found['width']}x{found['height']}" if found.get("width") and found.get("height") else ""
+        detail = " · ".join(x for x in ["Best quality, one image file", size] if x)
+        return {"title": f"Profile picture of @{target['handle']}", "thumb": found.get("preview"), "duration": 0,
+                "by": target["platform"], "options": [opt("avatar", "avatar", "Profile picture", detail, None)]}
     info, options, failure = {}, [], None
     with cookie_copy() as cookies:
         try:
@@ -190,9 +238,17 @@ def analyze(url):
             if not HAS_GALLERY:
                 raise
         has_video = any(o["kind"] == "video" for o in options)
+        # A tweet that is only words: offer to draw it as a scroll
+        tweet = None
+        if HAS_CARD and not has_video and tweetcard.tweet_id(url):
+            try:
+                found = tweetcard.tweet_info(url, cookie_args(cookies))
+                tweet = None if found["media"] else found      # tweets with photos keep the normal flow
+            except Exception as error:
+                print("Could not read that tweet:", error, file=sys.stderr)
         # Instagram stories and carousels: list every photo and video on its own
         items = []
-        if "instagram.com" in url and gallery_supports(url):
+        if gallery_supports(url) and not tweet and ("instagram.com" in url or not has_video):
             try:
                 items = gallery_items(url, cookies)
             except Exception as error:
@@ -201,18 +257,29 @@ def analyze(url):
     show_items = len(items) >= 2 or (len(items) == 1 and not has_video)
     if show_items:
         options += item_options(items)
+    if tweet:
+        options.append(opt("tweet", "image", "Ancient scroll (PNG)",
+                           "The tweet on parchment, with the author's face and ~username", None))
+    if HAS_OVERLAY and tweetcard.tweet_id(url) and (options or tweet):      # any tweet can be drawn across a photo
+        options.append(opt("overlay", "overlay", "Photo with the tweet across it",
+                           "Upload your photo, or use the tweet's own picture. The tweet is drawn like it looks on X.", None))
     # Photos, slideshows, carousels and stories come from gallery-dl
-    if gallery_supports(url) and ("instagram.com" in url or not has_video) and not (show_items and len(items) == 1):
+    if (gallery_supports(url) and ("instagram.com" in url or not has_video)
+            and not (show_items and len(items) == 1) and not tweet):
         what = "story" if "/stories/" in url else "post"
         if not HAS_FFMPEG:
             label, detail = f"All photos and videos in this {what}", "Saved as one ZIP"
-        elif not has_video and "instagram.com" not in url:
+        elif not has_video and "tiktok.com" in url:
             label, detail = "Slideshow video (MP4)", "Your photos set to the original song"
         else:
             label, detail = f"Everything in this {what} at once", "One file: a ZIP, or an MP4 slideshow if all are photos"
         options.append(opt("gallery", "zip", label, detail, None))
     if not options:
         raise failure or DownloadError("No downloadable media found.")  # keeps the real reason for the log
+    if tweet:
+        words = re.sub(r"https?://\S+", "", tweet["text"]).strip()
+        info = {"title": (words[:90] + ("…" if len(words) > 90 else "")) or "A tweet", "thumbnail": tweet["avatar"],
+                "uploader": "~" + tweet["handle"]}
     return {"title": info.get("title") or "Your link", "thumb": info.get("thumbnail"),
             "duration": int(info.get("duration") or 0), "by": info.get("uploader") or "", "options": options}
 
@@ -308,8 +375,8 @@ def gallery(url, job_dir, cookies, say=no_progress, only=None):
     """gallery-dl: every photo/video of a post (All photos become an MP4 slideshow, otherwise a ZIP),
     or just item number `only` as a single file."""
     span = f"{only}-{only}" if only else f"1-{MAX_ITEMS}"
-    cmd = [sys.executable, "-m", "gallery_dl", "-d", job_dir,
-           "--range", span, "--filesize-max", f"{MAX_MB}M", *cookie_args(cookies)]
+    cmd = [sys.executable, "-m", "gallery_dl", "-d", job_dir, "--range", span,
+           *(["--filesize-max", f"{MAX_MB}M"] if MAX_MB else []), *cookie_args(cookies)]
     say(None, "Getting that item" if only else "Collecting everything in the post")
     try:
         result = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=TOOL_TIMEOUT)
@@ -318,7 +385,7 @@ def gallery(url, job_dir, cookies, say=no_progress, only=None):
     files = [os.path.join(p, n) for p, _, names in os.walk(job_dir) for n in names]
     if not files:
         raise DownloadError("gallery-dl saved nothing. " + result.stderr[-200:])
-    if sum(os.path.getsize(f) for f in files) > MAX_MB * 1048576:
+    if MAX_MB and sum(os.path.getsize(f) for f in files) > MAX_MB * 1048576:
         raise DownloadError("That post is bigger than the size limit.")
     if only or len(files) == 1:
         return max(files, key=os.path.getsize)
@@ -333,19 +400,77 @@ def gallery(url, job_dir, cookies, say=no_progress, only=None):
     return shutil.make_archive(job_dir + "_zip", "zip", job_dir)
 
 
+def probe_video(path):
+    """(width, height, frames per second) of a video file, or zeros if it cannot be read."""
+    if not shutil.which("ffprobe"):
+        return 0, 0, 0
+    result = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                             "stream=width,height,r_frame_rate", "-of", "csv=p=0", path], capture_output=True, text=True)
+    try:
+        w, h, rate = result.stdout.strip().split(",")[:3]
+        top, _, bottom = rate.partition("/")
+        return int(w), int(h), float(top) / float(bottom or 1)
+    except (ValueError, ZeroDivisionError):
+        return 0, 0, 0
+
+
 def make_gif(url, oid, job_dir, opts, say=no_progress):
-    width, fps, secs, _ = GIF_PRESETS[oid]
-    opts.update({"format": "bestvideo*[height<=720]/best[height<=720]/best",
+    best = oid == "gif_best"
+    if best:
+        secs, cap = GIF_BEST_SECS, 1080                    # width and frame rate come from the clip itself, below
+    else:
+        width, fps, secs, _ = GIF_PRESETS[oid]
+        cap = 720
+    opts.update({"format": f"bestvideo*[height<={cap}]/best[height<={cap}]/best",
                  "outtmpl": os.path.join(job_dir, "source.%(ext)s")})
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
     source = first_file(job_dir)
     say(None, "Making your GIF")
     out = os.path.join(job_dir, "clip.gif")
-    vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"
+    if best:                                               # keep the clip's own size and smoothness, up to the caps
+        src_w, _, src_fps = probe_video(source)
+        width, fps = min(src_w or GIF_BEST_WIDTH, GIF_BEST_WIDTH), min(round(src_fps or 24), GIF_BEST_FPS)
+        palette = "palettegen=stats_mode=diff:max_colors=256[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
+    else:
+        palette = "palettegen[p];[b][p]paletteuse"
+    vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[a][b];[a]{palette}"
     run_tool(["ffmpeg", "-nostdin", "-y", "-t", str(secs), "-i", source, "-vf", vf, out])
     os.remove(source)
+    if MAX_MB and os.path.getsize(out) > MAX_MB * 1048576:
+        raise DownloadError("That GIF is bigger than the size limit. Try a smaller GIF.")
     return out
+
+
+def video_cover(url, cookies):
+    """The cover picture of a tweet's video (the biggest thumbnail yt-dlp lists), or None."""
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts(cookies, {"skip_download": True})) as ydl:
+            found = ydl.extract_info(url, download=False) or {}
+    except Exception:
+        return None
+    thumbs = [t for t in found.get("thumbnails") or [] if t.get("url")]
+    if thumbs:
+        return max(thumbs, key=lambda t: ((t.get("width") or 0) * (t.get("height") or 0), t.get("preference") or 0))["url"]
+    return found.get("thumbnail")
+
+
+def overlay(url, photo, theme, position, job_dir, say=no_progress):
+    """Draw the tweet at url across a photo (bytes), or across the tweet's own first photo when photo is None.
+    theme: dark, dim or light. position: top, middle or bottom. Returns the path of the finished JPEG."""
+    if not HAS_OVERLAY:
+        raise DownloadError("Tweet over a photo needs:  pip install pillow fonttools requests")
+    with cookie_copy() as cookies:
+        say(None, "Reading the tweet")
+        info = tweetcard.tweet_info(url, cookie_args(cookies))
+        if photo is None and not info.get("photos") and not info.get("cover"):
+            say(None, "Getting the video's cover picture")          # a video tweet has no photo, but it has a cover
+            info["cover"] = video_cover(url, cookies)
+    if photo is None:
+        say(None, "Getting the tweet's own picture")
+        photo = tweetoverlay.fetch_own_photo(info)
+    say(None, "Drawing the card")
+    return tweetoverlay.render_overlay(info, photo, os.path.join(job_dir, f"tweet-{info['id']}-on-photo.jpg"), theme, position)
 
 
 def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
@@ -354,12 +479,23 @@ def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
     with cookie_copy() as cookies:
         if oid == "gallery":
             return gallery(url, job_dir, cookies, say)
+        if oid == "avatar":
+            if not HAS_PIC or not profilepic.avatar_target(url):
+                raise DownloadError("That is not a profile link.")
+            say(None, "Getting the picture")
+            return profilepic.save_picture(profilepic.avatar_target(url), job_dir, cookie_args(cookies))
+        if oid == "tweet":
+            if not HAS_CARD:
+                raise DownloadError("Tweet scrolls need:  pip install pillow fonttools requests")
+            say(None, "Writing your scroll")
+            found = tweetcard.tweet_info(url, cookie_args(cookies))
+            return tweetcard.render_card(found, os.path.join(job_dir, f"tweet-{found['id']}.png"))
         if oid.startswith("item") and oid[4:].isdigit():
             return gallery(url, job_dir, cookies, say, only=int(oid[4:]))
         opts = ydl_opts(cookies, {
             "outtmpl": os.path.join(job_dir, "%(title).100B [%(id)s].%(ext)s"),
-            "max_filesize": MAX_MB * 1048576,
-            "format_sort": ["res", "vcodec:h264", "acodec:aac"],  # top resolution, then the most compatible codec
+            "format_sort": FORMAT_SORT,                       # best quality first (see the top of this file)
+            **({"max_filesize": MAX_MB * 1048576} if MAX_MB else {}),
             **make_hooks(say, expected_mb * 1048576 if expected_mb else None),
         })
         if oid.startswith("v") and oid[1:].isdigit():
@@ -372,7 +508,7 @@ def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
         elif oid == "a_mp3":
             opts["format"] = "bestaudio/best"
             opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "0"}]
-        elif oid in GIF_PRESETS:
+        elif oid in GIF_PRESETS or oid == "gif_best":
             return make_gif(url, oid, job_dir, opts, say)
         else:
             raise DownloadError("Unknown option.")

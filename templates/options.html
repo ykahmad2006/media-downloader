@@ -24,8 +24,23 @@ h1{font-size:clamp(24px,4vw,34px);letter-spacing:2px;text-transform:uppercase;fo
 h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;margin:26px 0 10px}
 .opt{display:flex;align-items:center;gap:14px;background:#fff;padding:12px 16px;margin-bottom:8px;border-left:4px solid #e1251b}
 .pv{width:54px;height:96px;object-fit:cover;background:#2a2a2b;flex:none}
+.opt.ovl{flex-wrap:wrap;gap:12px 18px}.ovbody{flex:1 1 100%;min-width:0}.ovbody>b{display:block}.ovbody>span{font-size:13px}
+.ovrows{margin-top:10px}.ovrow{display:flex;align-items:center;flex-wrap:wrap;padding:5px 0}.ovrow.sub{padding-left:70px}
+.ovlabel{flex:0 0 70px;font:700 11px Raleway,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#2a2a2b}
+.ctl{flex:1 1 0;min-width:0}
+.ovfile{display:inline-flex;align-items:center;gap:10px;cursor:pointer;position:relative;max-width:100%}
+.ovfile input,.seg input{position:absolute;opacity:0;width:1px;height:1px}
+.pick{display:inline-block;padding:7px 14px;border:1px solid #2a2a2b;color:#2a2a2b;background:#fff;font:700 12px Raleway,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
+.ovfile:hover .pick{background:#2a2a2b;color:#fff}.ovfile:focus-within .pick{outline:3px solid #e1251b;outline-offset:2px}.ovfile.off{opacity:.4;pointer-events:none}
+.ovfile .name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}.ovthumb{width:36px;height:36px;object-fit:cover;background:#2a2a2b}
+.ovcheck{font-size:13px;cursor:pointer}.ovcheck small{color:#888}
+.seg label{display:inline-block;margin:0 6px 0 0;cursor:pointer;position:relative}
+.seg label span{display:inline-block;padding:6px 14px;border:1px solid #ccc;background:#fff;font:600 13px "Open Sans",Arial,sans-serif;color:#2a2a2b;white-space:nowrap}
+.seg label:hover span{border-color:#2a2a2b}.seg input:checked+span{background:#2a2a2b;border-color:#2a2a2b;color:#fff}.seg input:focus-visible+span{outline:3px solid #e1251b;outline-offset:2px}
+.seg .sw{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid #888;margin-right:7px;vertical-align:-1px}
+.opt.ovl>.btn{margin-left:auto}
 .opt.big{border-left-color:#bbb;opacity:.65}
-.opt div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt span{font-size:13px}
+.opt>div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt>div>span{font-size:13px}
 .opt em{font-style:normal;font-weight:600;color:#2a2a2b;white-space:nowrap}
 .tag{display:inline-block;margin-left:8px;padding:0 8px;font:700 10px/18px Raleway;letter-spacing:1px;text-transform:uppercase;background:#e1251b;color:#fff;vertical-align:2px}
 .btn{height:42px;padding:0 22px;border:0;background:#e1251b;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:1px;cursor:pointer}
@@ -41,7 +56,7 @@ h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;marg
 #msg a{text-decoration:underline}
 .note{font-size:13px;border-top:1px solid #ddd;padding:18px 0 40px}
 footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
-@media(max-width:620px){.media{flex-direction:column;align-items:flex-start}.opt{flex-wrap:wrap}}
+@media(max-width:620px){.media{flex-direction:column;align-items:flex-start}.opt{flex-wrap:wrap}.opt.ovl>.btn{width:100%}.ovlabel{flex-basis:100%}.ovrow.sub{padding-left:0}}
 @media(prefers-reduced-motion:reduce){.fill.ind{animation:none;width:100%;opacity:.5}}
 </style>
 </head>
@@ -52,17 +67,35 @@ footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
 </div></div>
 <div class="wrap">
   <div class="media">
-    {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer">{% endif %}
+    {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}
     <div><h2>{{ d.title }}</h2><p>{{ d.by }}{% if d.by and d.duration %} · {% endif %}{% if d.duration %}{{ d.duration // 60 }}:{{ '%02d'|format(d.duration % 60) }}{% endif %}</p></div>
   </div>
-  {% for kind, name in [("video","Video"),("audio","Audio"),("gif","GIF, small enough for WhatsApp and X"),("item","Each photo and video on its own"),("zip","Everything in one go")] %}
+  {% for kind, name in [("avatar","Profile picture"),("video","Video"),("audio","Audio"),("overlay","Tweet over a photo"),("image","Tweet written as an ancient scroll"),("gif","GIF, small enough for WhatsApp and X"),("item","Each photo and video on its own"),("zip","Everything in one go")] %}
     {% set items = d.options|selectattr("kind","equalto",kind)|list %}
     {% if items %}<h3>{{ name }}</h3>
       {% for o in items %}
-      {% set big = (o.size or 0) > max_mb %}
+      {% set big = max_mb and (o.size or 0) > max_mb %}
+      {% if kind == "overlay" %}
+      <div class="opt ovl"><div class="ovbody"><b>{{ o.label }}</b><span>{{ o.detail }}</span>
+        <div class="ovrows">
+          <div class="ovrow"><span class="ovlabel">Photo</span><div class="ctl">
+            <label class="ovfile" id="ovFile"><input type="file" id="ovPhoto" accept="image/jpeg,image/png,image/webp"><span class="pick">Choose photo</span><img class="ovthumb" id="ovThumb" alt="" hidden><span class="name" id="ovName">No photo chosen</span></label></div></div>
+          <div class="ovrow sub"><div class="ctl"><label class="ovcheck"><input type="checkbox" id="ovOwn"> Use the tweet's own picture <small>(or its video's cover)</small></label></div></div>
+          <div class="ovrow"><span class="ovlabel">Look</span><div class="ctl seg">
+            <label><input type="radio" name="ovTheme" value="dark" checked><span><em class="sw" style="background:#000"></em>Dark</span></label>
+            <label><input type="radio" name="ovTheme" value="dim"><span><em class="sw" style="background:#15202b"></em>Dim</span></label>
+            <label><input type="radio" name="ovTheme" value="light"><span><em class="sw" style="background:#fff"></em>Light</span></label></div></div>
+          <div class="ovrow"><span class="ovlabel">Place</span><div class="ctl seg">
+            <label><input type="radio" name="ovPos" value="top"><span>Top</span></label>
+            <label><input type="radio" name="ovPos" value="middle"><span>Middle</span></label>
+            <label><input type="radio" name="ovPos" value="bottom" checked><span>Bottom</span></label></div></div>
+        </div></div>
+        <button class="btn" id="ovGo" type="button">Make picture</button></div>
+      {% else %}
       <div class="opt{% if big %} big{% endif %}">{% if o.thumb %}<img class="pv" src="{{ o.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}<div><b>{{ o.label }}{% if kind == "video" and loop.first and not big %}<span class="tag">Best quality</span>{% endif %}</b><span>{{ o.detail }}{% if o.when %}<span class="when" data-t="{{ o.when }}"></span>{% endif %}</span></div>
         <em>{% if big %}over the {{ max_mb }} MB limit{% elif o.size %}about {{ o.size }} MB{% else %}size shown after download{% endif %}</em>
         <button class="btn" data-id="{{ o.id }}" data-big="{{ 1 if big else 0 }}"{% if big %} disabled{% endif %}>Download</button></div>
+      {% endif %}
       {% endfor %}
     {% endif %}
   {% endfor %}
@@ -77,7 +110,7 @@ footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
 <footer><div class="wrap">Fetchly · A small tool for saving videos you’re allowed to keep.</div></footer>
 <script>
 const token="{{ token }}",KEY="fetchly-job-"+token,
-  msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn"),
+  msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn[data-id]"),ovGo=document.getElementById("ovGo"),
   job=document.getElementById("job"),stage=document.getElementById("stage"),
   pct=document.getElementById("pct"),fill=document.getElementById("fill");
 let misses=0;
@@ -88,7 +121,7 @@ document.querySelectorAll(".when").forEach(e=>{      // show when each story was
 
 const keep=(v)=>{try{v?sessionStorage.setItem(KEY,v):sessionStorage.removeItem(KEY)}catch(e){}};
 const kept=()=>{try{return sessionStorage.getItem(KEY)}catch(e){return null}};
-function lock(on){btns.forEach(b=>b.disabled=on||b.dataset.big==="1")}
+function lock(on){btns.forEach(b=>b.disabled=on||b.dataset.big==="1");if(ovGo)ovGo.disabled=on}
 function say(t,c){msg.className=c||"";msg.textContent=t}
 function paint(s){
   job.hidden=false;
@@ -108,7 +141,7 @@ async function poll(id,quiet){
     if(d.state==="error")return fail(d.error||"That download failed. Try another size.");
     if(d.state==="done"){
       paint({stage:"Ready",percent:100});stop();
-      msg.className="ok";msg.innerHTML="Done. Your download is starting. If nothing happens, <a href=\""+d.file+"\">tap here to save it</a>.";
+      msg.className="ok";msg.innerHTML="Done. Your download is starting. If nothing happens, <a href=\""+d.file+"\">tap here to save it</a>. The link works for about 10 minutes.";
       const a=document.createElement("a");a.href=d.file;a.click();
       return;
     }
@@ -135,6 +168,37 @@ btns.forEach(b=>b.onclick=async()=>{
       :err.message,"err");
   }
 });
+
+if(ovGo){                                   // tweet over a photo: send the photo, then watch the job like any download
+  const photo=document.getElementById("ovPhoto"),own=document.getElementById("ovOwn"),pick=document.getElementById("ovFile"),
+    nameEl=document.getElementById("ovName"),thumb=document.getElementById("ovThumb"),
+    chosen=n=>document.querySelector('input[name="'+n+'"]:checked').value;
+  photo.onchange=()=>{
+    const f=photo.files[0];
+    nameEl.textContent=f?f.name:"No photo chosen";
+    if(thumb.src.startsWith("blob:"))URL.revokeObjectURL(thumb.src);
+    if(f){thumb.src=URL.createObjectURL(f);thumb.hidden=false}else{thumb.hidden=true}
+  };
+  own.onchange=()=>pick.classList.toggle("off",own.checked);
+  ovGo.onclick=async()=>{
+    const file=photo.files[0];
+    if(!own.checked&&!file)return say("Choose a photo, or tick the tweet's own picture.","err");
+    if(!own.checked&&file.size>15*1024*1024)return say("That photo is bigger than 15 MB.","err");
+    lock(true);say("");misses=0;paint({stage:"Uploading",percent:null});
+    const form=new FormData();
+    form.append("token",token);form.append("theme",chosen("ovTheme"));form.append("position",chosen("ovPos"));
+    if(own.checked)form.append("own","1");else form.append("photo",file);
+    try{
+      const r=await fetch("/api/overlay",{method:"POST",body:form});
+      const d=await r.json();
+      if(!d.ok)throw new Error(d.error);
+      keep(d.job);poll(d.job,false);
+    }catch(err){
+      job.hidden=true;lock(false);
+      say(err instanceof TypeError?"Couldn’t reach the server. Check your connection and try again.":err instanceof SyntaxError?"The server sent an unexpected reply. Please try again.":err.message,"err");
+    }
+  };
+}
 
 const saved=kept();             // came back to a page with a download in progress
 if(saved){lock(true);paint({stage:"Checking your download"});poll(saved,true)}

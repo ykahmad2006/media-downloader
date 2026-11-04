@@ -1,9 +1,6 @@
 {$DOMAIN:localhost} {
-	# Hide the server banner and refuse oversized requests (the site only sends tiny JSON)
+	# Hide the server banner
 	header -Server
-	request_body {
-		max_size 16KB
-	}
 
 	# Compress pages and data only. Never compress downloads: video and audio are already
 	# compressed, and compressing hides the file size, so the browser loses its progress bar.
@@ -13,10 +10,26 @@
 		}
 	}
 
-	# Caddy passes the visitor's real IP and https status to the app (app.py trusts one proxy).
-	# Downloads are short requests now, so the default timeouts are fine.
-	reverse_proxy app:8000 {
-		health_uri /healthz
-		health_interval 30s
+	# Photo uploads for "tweet over a photo" may be up to 16 MB ...
+	@upload path /api/overlay
+	handle @upload {
+		request_body {
+			max_size 16MB
+		}
+		reverse_proxy app:8000 {
+			health_uri /healthz
+			health_interval 30s
+		}
+	}
+
+	# ... everything else is a few bytes of JSON
+	handle {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy app:8000 {
+			health_uri /healthz
+			health_interval 30s
+		}
 	}
 }

@@ -30,10 +30,10 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.wsgi import ClosingIterator
 
-from fetchly_core import MAX_MB, analyze, fetch
+from fetchly_core import FRIENDLY, MAX_MB, MAX_UPLOAD, OVERLAY_POSITIONS, OVERLAY_THEMES, analyze, fetch, overlay
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024  # requests are tiny JSON; refuse anything bigger
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD + 256 * 1024   # only the photo upload may be big (see small_bodies below)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)  # trust one proxy (Caddy): real IP and https
 limiter = Limiter(get_remote_address, app=app, default_limits=["300 per hour"], storage_uri="memory://")
 
@@ -44,6 +44,7 @@ os.makedirs(BASE, exist_ok=True)
 MAX_JOBS = int(os.environ.get("MAX_JOBS", "3"))  # downloads running at the same time
 PER_IP = int(os.environ.get("PER_IP", "2"))      # ...of which one visitor may use this many
 KEEP_SECONDS = 3600                               # unused options and files are dropped after an hour
+KEEP_AFTER_DOWNLOAD = 600                         # a file stays this long after it was fully sent, so a retry still works
 MAX_CACHE = 500                                   # analysed links kept in memory at once
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
 
@@ -84,6 +85,17 @@ def url_allowed(url):
         return False
 
 
+def forget(job_id):
+    """Remove a finished job and its files."""
+    job = JOBS.pop(job_id, None)
+    shutil.rmtree(os.path.join(BASE, job_id), ignore_errors=True)
+    if job and job.get("file"):
+        try:
+            os.remove(job["file"])                     # e.g. a ZIP stored beside the job folder
+        except OSError:
+            pass
+
+
 def sweep():
     """Delete expired options and leftover files so the disk and memory never fill up."""
     now = time.time()
@@ -94,7 +106,10 @@ def sweep():
         age = now - j["at"]
         finished = j["state"] in ("done", "error")
         lost = j["state"] == "done" and not os.path.exists(j["file"])
-        if lost or (finished and age > KEEP_SECONDS) or age > 2 * KEEP_SECONDS:
+        sent = j.get("sent_at") and now - j["sent_at"] > KEEP_AFTER_DOWNLOAD     # downloaded in full, grace time over
+        if sent:
+            forget(job)
+        elif lost or (finished and age > KEEP_SECONDS) or age > 2 * KEEP_SECONDS:
             JOBS.pop(job, None)
     for name in os.listdir(BASE):
         path = os.path.join(BASE, name)
@@ -107,7 +122,7 @@ def sweep():
 
 def sweeper():
     while True:
-        time.sleep(300)  # every five minutes, even when nobody is visiting
+        time.sleep(120)  # every two minutes, even when nobody is visiting
         try:
             sweep()
         except Exception:
@@ -126,6 +141,19 @@ def remember(result, url):
     token = uuid.uuid4().hex[:12]
     CACHE[token] = {**result, "url": url, "at": time.time()}
     return token
+
+
+@app.before_request
+def small_bodies():
+    """Every request except the photo upload is a few bytes of JSON: refuse anything bigger."""
+    if request.method == "POST" and request.path != "/api/overlay" and (request.content_length or 0) > 16 * 1024:
+        abort(413)
+
+
+@app.errorhandler(413)
+def too_big(_):
+    message = "That photo is bigger than 15 MB." if request.path == "/api/overlay" else "That request is too large."
+    return jsonify(ok=False, error=message), 413
 
 
 @app.before_request
@@ -151,6 +179,13 @@ def secure(response):
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.errorhandler(404)
+def not_found(_):
+    if request.path.startswith("/file/"):
+        return Response("This download link has expired. Go back to Fetchly and make it again.", 404, {"Content-Type": "text/plain; charset=utf-8"})
+    return Response("Page not found.", 404, {"Content-Type": "text/plain; charset=utf-8"})
 
 
 @app.errorhandler(429)
@@ -179,6 +214,8 @@ def api_analyze():
         return jsonify(ok=False, error="That link can’t be used here. Try a link from YouTube, X, TikTok or Instagram."), 400
     try:
         result = analyze(url)
+    except FRIENDLY as error:         # our own, safe-to-show reason
+        return jsonify(ok=False, error=str(error)), 422
     except Exception:
         traceback.print_exc()  # the real reason goes to the server log
         return jsonify(ok=False, error=SORRY), 422
@@ -193,8 +230,8 @@ def options(token):
     return render_template("options.html", d=data, token=token, max_mb=MAX_MB)
 
 
-def run_job(job_id, url, oid, ip, expected_mb):
-    """Runs in its own thread: does the download and reports progress for the page to poll."""
+def run_job(job_id, work, ip):
+    """Runs in its own thread: does work(say, job_dir) and reports progress for the page to poll."""
     job_dir = os.path.join(BASE, job_id)
 
     def say(percent=None, stage=None):
@@ -210,8 +247,11 @@ def run_job(job_id, url, oid, ip, expected_mb):
     try:
         os.makedirs(job_dir)
         JOBS[job_id].update(state="working", stage="Starting")
-        path = fetch(url, oid, job_dir, say, expected_mb)
+        path = work(say, job_dir)
         JOBS[job_id].update(state="done", percent=100, stage="Ready", file=path, at=time.time())
+    except FRIENDLY as error:         # our own, safe-to-show reason (for example an unsupported script)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        JOBS[job_id].update(state="error", error=str(error), at=time.time())
     except Exception:
         traceback.print_exc()
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -224,16 +264,9 @@ def run_job(job_id, url, oid, ip, expected_mb):
                 ACTIVE.pop(ip, None)
 
 
-@app.post("/api/fetch")
-@limiter.limit("4 per minute;40 per hour")
-def api_fetch():
-    body = request.get_json(silent=True) or {}
-    data = CACHE.get(body.get("token"))
-    oid = body.get("option")
-    chosen = next((o for o in (data or {}).get("options", []) if o["id"] == oid), None)
-    if not chosen:
-        return jsonify(ok=False, error="That option has expired. Please paste the link again."), 400
-    if shutil.disk_usage(BASE).free < 2 * MAX_MB * 1048576:
+def start_job(work):
+    """Start work(say, job_dir) in the background if there is room, and tell the page which job to watch."""
+    if shutil.disk_usage(BASE).free < 2 * max(MAX_MB, 1000) * 1048576:
         return jsonify(ok=False, error="The server is full right now. Please try again later."), 503
     ip = get_remote_address()
     with active_lock:
@@ -244,10 +277,42 @@ def api_fetch():
         ACTIVE[ip] = ACTIVE.get(ip, 0) + 1
     job_id = uuid.uuid4().hex
     JOBS[job_id] = {"state": "queued", "percent": None, "stage": "Starting", "file": None, "error": None, "at": time.time()}
+    threading.Thread(target=run_job, args=(job_id, work, ip), daemon=True).start()
+    return jsonify(ok=True, job=job_id)
+
+
+@app.post("/api/fetch")
+@limiter.limit("4 per minute;40 per hour")
+def api_fetch():
+    body = request.get_json(silent=True) or {}
+    data = CACHE.get(body.get("token"))
+    oid = body.get("option")
+    chosen = next((o for o in (data or {}).get("options", []) if o["id"] == oid), None)
+    if not chosen:
+        return jsonify(ok=False, error="That option has expired. Please paste the link again."), 400
     # the size estimate makes the progress bar exact for plain video and original audio
     expected = chosen["size"] if oid.startswith("v") or oid == "a_orig" else None
-    threading.Thread(target=run_job, args=(job_id, data["url"], oid, ip, expected), daemon=True).start()
-    return jsonify(ok=True, job=job_id)
+    return start_job(lambda say, job_dir: fetch(data["url"], oid, job_dir, say, expected))
+
+
+@app.post("/api/overlay")
+@limiter.limit("4 per minute;30 per hour")
+def api_overlay():
+    """A tweet drawn across a photo: the visitor's upload, or the tweet's own picture when own=1."""
+    data = CACHE.get(request.form.get("token", ""))
+    if not data or not any(o["id"] == "overlay" for o in data["options"]):
+        return jsonify(ok=False, error="That option has expired. Please paste the link again."), 400
+    theme, position = request.form.get("theme", "dark"), request.form.get("position", "bottom")
+    if theme not in OVERLAY_THEMES or position not in OVERLAY_POSITIONS:
+        return jsonify(ok=False, error="Pick a look and a place for the card."), 400
+    upload, photo = request.files.get("photo"), None
+    if request.form.get("own") != "1":
+        if not upload or not upload.filename:
+            return jsonify(ok=False, error="Choose a photo, or use the tweet's own picture."), 400
+        photo = upload.read(MAX_UPLOAD + 1)
+        if len(photo) > MAX_UPLOAD:
+            return jsonify(ok=False, error="That photo is bigger than 15 MB."), 413
+    return start_job(lambda say, job_dir: overlay(data["url"], photo, theme, position, job_dir, say))
 
 
 @app.get("/api/job/<job_id>")
@@ -264,28 +329,33 @@ def api_job(job_id):
     return jsonify(out)
 
 
+def counted(chunks, job_id, total):
+    """Pass a file through and note when ALL of it was sent. A cancelled or repeated request (phones do this) is harmless."""
+    sent = 0
+    try:
+        for chunk in chunks:
+            sent += len(chunk)
+            yield chunk
+        else:                                          # reached the end: the whole file went out
+            job = JOBS.get(job_id)
+            if job and sent >= total:
+                job["sent_at"] = time.time()
+    finally:
+        close = getattr(chunks, "close", None)
+        if close:
+            close()
+
+
 @app.get("/file/<job_id>")
 def get_file(job_id):
     job = JOBS.get(job_id)
     path = job and job["state"] == "done" and job["file"]
     if not path or not os.path.isfile(path):
         abort(404)
-    job_dir = os.path.join(BASE, job_id)
+    # send_file also answers range requests, so interrupted downloads can resume
     response = send_file(path, as_attachment=True, download_name=os.path.basename(path))
-
-    def cleanup():  # after sending; never crashes if Windows holds a lock
-        JOBS.pop(job_id, None)
-        shutil.rmtree(job_dir, ignore_errors=True)
-        try:
-            os.remove(path)  # e.g. a ZIP stored beside the job folder
-        except OSError:
-            pass
-
-    # Werkzeug hands file responses straight to the server, so call_on_close never fires for them.
-    # Wrapping the body works: the server closes it once the last byte is sent. Only a full GET
-    # counts (a HEAD or a partial range request must not delete the file).
     if request.method == "GET" and response.status_code == 200:
-        response.response = ClosingIterator(response.response, cleanup)
+        response.response = counted(response.response, job_id, os.path.getsize(path))
     return response
 
 
