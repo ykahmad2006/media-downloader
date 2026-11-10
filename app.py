@@ -15,6 +15,7 @@ Settings (environment variables, all optional):
 import hmac
 import ipaddress
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -22,14 +23,17 @@ import threading
 import time
 import traceback
 import uuid
+from datetime import date
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape
 
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, send_file
+from flask import Flask, Response, abort, jsonify, make_response, redirect, render_template, request, send_file, send_from_directory
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.wsgi import ClosingIterator
 
+from pages import BY_SLUG, HOME_FAQ, SERVICES
 from fetchly_core import FRIENDLY, MAX_MB, MAX_UPLOAD, OVERLAY_POSITIONS, OVERLAY_THEMES, analyze, fetch, overlay
 
 app = Flask(__name__)
@@ -47,6 +51,21 @@ KEEP_SECONDS = 3600                               # unused options and files are
 KEEP_AFTER_DOWNLOAD = 600                         # a file stays this long after it was fully sent, so a retry still works
 MAX_CACHE = 500                                   # analysed links kept in memory at once
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+
+
+def _token(value):
+    """An id from the environment (analytics, verification), kept only if it is made of safe characters."""
+    value = (value or "").strip()
+    return value if re.fullmatch(r"[A-Za-z0-9_-]{3,80}", value) else ""
+
+
+SITE_URL = os.environ.get("SITE_URL", "").strip().rstrip("/")            # https://yourdomain.com  (used in link previews and the sitemap)
+GA_ID, GTM_ID = _token(os.environ.get("GA_ID")), _token(os.environ.get("GTM_ID"))
+GSC_VERIFY, BING_VERIFY = _token(os.environ.get("GSC_VERIFY")), _token(os.environ.get("BING_VERIFY"))
+_mail = os.environ.get("CONTACT_EMAIL", "").strip()
+CONTACT_EMAIL = _mail if re.fullmatch(r"[^@\s<>\"]+@[^@\s<>\"]+\.[^@\s<>\"]+", _mail) else ""
+HERE = os.path.dirname(os.path.abspath(__file__))
+PUBLIC = {"/", "/healthz", "/privacy", "/robots.txt", "/sitemap.xml", "/favicon.ico"} | {f"/{s['slug']}" for s in SERVICES}
 
 DEFAULT_HOSTS = "youtube.com,youtu.be,x.com,twitter.com,tiktok.com,instagram.com,instagr.am"
 _hosts = os.environ.get("ALLOWED_HOSTS", "").strip().lower() or DEFAULT_HOSTS
@@ -158,8 +177,8 @@ def too_big(_):
 
 @app.before_request
 def gate():
-    """Optional passcode for the whole site (HTTP Basic: the browser shows its own login box)."""
-    if not ACCESS_CODE or request.path == "/healthz":
+    """Optional passcode for the tool (HTTP Basic: the browser shows its own login box). The pages anyone may read stay open."""
+    if not ACCESS_CODE or request.path in PUBLIC or request.path.startswith("/static/"):
         return None
     auth = request.authorization
     given = (getattr(auth, "password", None) or "").encode()
@@ -172,12 +191,16 @@ def gate():
 def secure(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     if request.is_secure:
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
-    if request.path.startswith("/api/"):
+    path = request.path
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith(("/api/", "/file/", "/options/")):
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
 
 
@@ -185,7 +208,10 @@ def secure(response):
 def not_found(_):
     if request.path.startswith("/file/"):
         return Response("This download link has expired. Go back to Fetchly and make it again.", 404, {"Content-Type": "text/plain; charset=utf-8"})
-    return Response("Page not found.", 404, {"Content-Type": "text/plain; charset=utf-8"})
+    page = ('<!DOCTYPE html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Page not found | Fetchly</title>'
+            '<body style="font-family:system-ui,sans-serif;background:#14213D;color:#F4EDE0;text-align:center;padding:90px 20px">'
+            '<h1 style="font-weight:300;font-size:44px">Page not found</h1><p><a style="color:#FF6B5B" href="/">Go to Fetchly</a></p>')
+    return Response(page, 404, {"Content-Type": "text/html; charset=utf-8"})
 
 
 @app.errorhandler(429)
@@ -199,9 +225,107 @@ def healthz():
     return "ok"
 
 
+def base_url():
+    return SITE_URL or request.url_root.rstrip("/")
+
+
+def asset(path):
+    """A link to a file in the static folder, with a version so browsers fetch a new copy after an update."""
+    return f"/static/{path}?v={ASSET_V}"
+
+
+def _newest(*folders):
+    times = [os.path.getmtime(os.path.join(HERE, "pages.py"))]
+    for folder in folders:
+        for root, _, names in os.walk(os.path.join(HERE, folder)):
+            times += [os.path.getmtime(os.path.join(root, n)) for n in names]
+    return max(times)
+
+
+ASSET_V = str(int(_newest("static")))
+
+
+@app.context_processor
+def site_context():
+    return {"base_url": base_url(), "asset": asset, "services": SERVICES, "home_faq": HOME_FAQ, "ga_id": GA_ID, "gtm_id": GTM_ID,
+            "gsc_verify": GSC_VERIFY, "bing_verify": BING_VERIFY, "contact": CONTACT_EMAIL}
+
+
+def faq_ld(items):
+    return {"@context": "https://schema.org", "@type": "FAQPage",
+            "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in items]}
+
+
+def crumbs_ld(trail):
+    return {"@context": "https://schema.org", "@type": "BreadcrumbList",
+            "itemListElement": [{"@type": "ListItem", "position": i, "name": name, "item": base_url() + path}
+                                for i, (name, path) in enumerate(trail, 1)]}
+
+
+def html_page(template, seo, **context):
+    response = make_response(render_template(template, seo=seo, **context))
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+HOME_TITLE = "Fetchly: save any video, photo or tweet with just its link"
+HOME_DESC = ("Paste a link from YouTube, X, TikTok or Instagram and pick the quality you want. "
+             "Videos, photos, GIFs, profile pictures and tweets. No sign-up.")
+
+
 @app.route("/")
 def home():
-    return render_template("index.html")
+    base = base_url()
+    seo = {"title": HOME_TITLE, "description": HOME_DESC, "path": "/", "ld": [
+        {"@context": "https://schema.org", "@type": "WebSite", "name": "Fetchly", "url": base + "/", "description": HOME_DESC},
+        {"@context": "https://schema.org", "@type": "WebApplication", "name": "Fetchly", "url": base + "/",
+         "applicationCategory": "MultimediaApplication", "operatingSystem": "Any", "browserRequirements": "Requires JavaScript",
+         "description": HOME_DESC, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+         "featureList": [s["name"] for s in SERVICES]},
+        faq_ld(HOME_FAQ)]}
+    return html_page("index.html", seo)
+
+
+@app.get("/privacy")
+def privacy():
+    seo = {"title": "Rights and privacy | Fetchly",
+           "description": "What you may save with Fetchly, what it does with your links and photos, and how long files are kept.",
+           "path": "/privacy", "ld": [crumbs_ld([("Home", "/"), ("Rights and privacy", "/privacy")])]}
+    return html_page("privacy.html", seo)
+
+
+@app.get("/<slug>")
+def service(slug):
+    s = BY_SLUG.get(slug)
+    if not s:
+        abort(404)
+    base = base_url()
+    seo = {"title": s["title"], "description": s["description"], "path": f"/{slug}", "ld": [
+        {"@context": "https://schema.org", "@type": "WebPage", "name": s["title"], "url": f"{base}/{slug}", "description": s["description"],
+         "isPartOf": {"@type": "WebSite", "name": "Fetchly", "url": base + "/"}},
+        crumbs_ld([("Home", "/"), (s["name"], f"/{slug}")]), faq_ld(s["faq"])]}
+    return html_page("service.html", seo, s=s, related=[BY_SLUG[r] for r in s["related"]])
+
+
+@app.get("/robots.txt")
+def robots():
+    text = ("User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /options/\nDisallow: /file/\n\n"
+            f"Sitemap: {base_url()}/sitemap.xml\n")
+    return Response(text, mimetype="text/plain", headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    paths = ["/"] + [f"/{s['slug']}" for s in SERVICES] + ["/privacy"]
+    modified = date.fromtimestamp(_newest("templates", "static")).isoformat()
+    rows = "".join(f"  <url><loc>{escape(base_url() + p)}</loc><lastmod>{modified}</lastmod></url>\n" for p in paths)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{rows}</urlset>\n'
+    return Response(xml, mimetype="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico", max_age=86400)
 
 
 @app.post("/api/analyze")
@@ -227,7 +351,8 @@ def options(token):
     data = CACHE.get(token)
     if not data:
         return redirect("/")  # expired or server restarted: start again
-    return render_template("options.html", d=data, token=token, max_mb=MAX_MB)
+    seo = {"title": "Choose your download | Fetchly", "description": "Choose how to save your link.", "path": "/", "noindex": True, "theme": "#1F3D2B"}
+    return render_template("options.html", d=data, token=token, max_mb=MAX_MB, seo=seo)
 
 
 def run_job(job_id, work, ip):

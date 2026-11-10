@@ -1,0 +1,43 @@
+<form id="f">
+  <label class="sr" for="url">Link to the video, post or profile</label>
+  <input id="url" type="url" inputmode="url" placeholder="Paste a video, post or profile link" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button class="btn ghost" id="paste" type="button">Paste</button>
+  <button class="btn" id="go">Get options</button>
+</form>
+<div id="bar" hidden></div>
+<p id="msg" role="status" aria-live="polite"></p>
+<div class="chips"><span class="chip" data-s="YouTube">YouTube</span><span class="chip" data-s="X">X</span><span class="chip" data-s="TikTok">TikTok</span><span class="chip" data-s="Instagram">Instagram</span></div>
+<script>
+const f=document.getElementById("f"),url=document.getElementById("url"),go=document.getElementById("go"),
+  msg=document.getElementById("msg"),bar=document.getElementById("bar");
+const sites={"youtube.com":"YouTube","youtu.be":"YouTube","x.com":"X","twitter.com":"X","instagram.com":"Instagram","instagr.am":"Instagram","tiktok.com":"TikTok"};
+const paste=document.getElementById("paste");
+function say(t,c){msg.textContent=t;msg.className=c||""}
+function detect(v){try{const h=new URL(v).hostname.replace("www.","");for(const k in sites)if(h===k||h.endsWith("."+k))return sites[k]}catch(e){}return ""}
+url.addEventListener("input",()=>{
+  const s=detect(url.value.trim());
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.s===s));
+  say(s==="Instagram"?"That looks like an Instagram link. Posts and reels work, stories usually don’t.":s?"That looks like a "+s+" link. Good to go.":"");
+});
+if(!(navigator.clipboard&&navigator.clipboard.readText))paste.hidden=true;
+paste.addEventListener("click",async()=>{
+  try{url.value=(await navigator.clipboard.readText()).trim();url.dispatchEvent(new Event("input"));url.focus()}
+  catch(e){say("Your browser blocked the paste button. Press and hold in the box, then choose Paste.","err")}
+});
+f.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const link=url.value.trim();
+  if(!link)return say("Paste a link first, then press Get options.","err");
+  go.disabled=true;go.textContent="Working";bar.hidden=false;
+  say("Checking the link and fetching your file. Longer videos can take a minute.");
+  try{
+    const r=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:link})});
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error);
+    say("Found it. Taking you to your options...","ok");
+    go.disabled=false;go.textContent="Get options";bar.hidden=true;
+    location.href="/options/"+d.token;return;
+  }catch(err){say(err instanceof TypeError?"Couldn’t reach the server. Check your connection and try again.":(err.message||"Something went wrong. Please try again."),"err")}
+  go.disabled=false;go.textContent="Get options";bar.hidden=true;
+});
+</script>

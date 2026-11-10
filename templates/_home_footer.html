@@ -1,0 +1,13 @@
+<footer><div class="wrap foot">
+  <div class="fbrand"><a class="logo" href="/">fetch<i>ly</i></a>
+    <p>A small tool for saving videos, photos and tweets you’re allowed to keep. Please use it with care.</p>
+    <p class="credit">Emoji: Twemoji, CC-BY 4.0. Fonts: Inter, IM Fell English, UnifrakturMaguntia and UnifrakturCook, SIL Open Font License.</p></div>
+  <nav aria-label="Tools"><h4>Tools</h4>
+    {% for s in services %}<a href="/{{ s.slug }}">{{ s.name }}</a>
+    {% endfor %}</nav>
+  <nav aria-label="Fetchly"><h4>Fetchly</h4>
+    <a href="/#how">How it works</a>
+    <a href="/#rights">What you can save</a>
+    <a href="/#faq">Questions</a>
+    <a href="/privacy">Rights and privacy</a></nav>
+</div></footer>

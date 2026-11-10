@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_head.html" %}
+{% include "_home_css.html" %}
+</head>
+<body>
+<div class="hero" id="top">
+  {% set active = "home" %}{% include "_home_top.html" %}
+  <div class="wrap">
+    <h1>Save any video, photo or tweet <b>with just its link</b></h1>
+    <p class="lead">Found something you’re allowed to keep? Paste its address below, then pick the quality and size you want. That’s the whole process.</p>
+    {% include "_form.html" %}
+  </div>
+</div>
+
+<section id="how"><div class="wrap">
+  <h2>Three steps, <b>no sign-up</b></h2>
+  <p class="sub">Paste the link, pick a size, keep the file. Nothing to install and no account to make.</p>
+  <div class="g3">
+    <div class="step"><div class="num">1</div><h3>Paste the link</h3><p>Copy the address of the video, post or profile from the site where you found it and drop it in the box at the top.</p></div>
+    <div class="step"><div class="num">2</div><h3>Choose a size</h3><p>See every quality we can get, from the sharpest video to audio, a GIF or a photo, with the file size next to each.</p></div>
+    <div class="step"><div class="num">3</div><h3>Keep the file</h3><p>When it’s ready your browser starts saving it on its own. Longer videos take a little while, and a dial shows the progress.</p></div>
+  </div>
+</div></section>
+
+<section class="alt" id="tools"><div class="wrap">
+  <h2>Everything Fetchly can <b>save</b></h2>
+  <p class="sub">One box, seven things it can do. Open a page to see how each one works.</p>
+  <div class="tools">
+    {% for s in services %}<a class="tool" href="/{{ s.slug }}"><b>{{ s.name }}</b><span>{{ s.blurb }}</span><em>Open ↗</em></a>
+    {% endfor %}
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <h2>Six things <b>worth knowing</b></h2>
+  <p class="sub">So nothing surprises you.</p>
+  <div class="tiles">
+    <div class="tile"><b>01</b>You don’t need an account or an app.</div>
+    <div class="tile"><b>02</b>We take the best quality the site offers, not just the first one we find.</div>
+    <div class="tile"><b>03</b>Pick video, audio, a photo, or a GIF for WhatsApp and X.</div>
+    <div class="tile"><b>04</b>Works with YouTube, X, TikTok and Instagram.</div>
+    <div class="tile"><b>05</b>A few minutes after you’ve downloaded it, your file is deleted from our server.</div>
+    <div class="tile"><b>06</b>Meant for things you have the right to save.</div>
+  </div>
+</div></section>
+
+<section id="rights"><div class="wrap two">
+  <div class="seal">Yours to keep, or free to share</div>
+  <div>
+    <h2>Some things are yours to keep.<em>Others aren’t.</em></h2>
+    <p style="margin-bottom:10px">Fetchly is for videos and photos you made yourself, things shared under a Creative Commons or public-domain licence, and anything the owner has said you can download.</p>
+    <p>Most of what is on the big platforms belongs to someone else. Saving it without permission can break the site’s rules and copyright law. If you aren’t sure, ask the owner first. You’re responsible for what you download. <a href="/privacy" style="color:var(--coral);font-weight:600">Read more on rights and privacy</a>.</p>
+  </div>
+</div></section>
+
+<section class="alt" id="sites"><div class="wrap">
+  <h2>Where it <b>works</b></h2>
+  <p class="sub">Four sites, done well. Posts, reels and carousels on Instagram work too. Stories need a login, so they often won’t.</p>
+  <div class="sites"><span>YouTube</span><span>X</span><span>TikTok</span><span>Instagram</span></div>
+</div></section>
+
+<section id="faq"><div class="wrap" style="max-width:760px">
+  <h2>Common <b>questions</b></h2>
+  <p class="sub">Quick answers before you start.</p>
+  {% for q, a in home_faq %}<details><summary>{{ q }}</summary><p>{{ a }}</p></details>
+  {% endfor %}
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <h3>Got a link ready? <b>Paste it in and see.</b></h3>
+  <a class="btn" href="#top" onclick="setTimeout(()=>url.focus(),400)">Start downloading</a>
+</div></div>
+
+{% include "_home_footer.html" %}
+{% include "_analytics.html" %}
+</body>
+</html>

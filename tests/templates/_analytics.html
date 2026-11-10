@@ -1,0 +1,25 @@
+{% if gtm_id or ga_id %}
+<div class="consent" id="consent" hidden role="dialog" aria-label="Analytics cookies">
+  <span>May we use analytics cookies to see which pages help people? Nothing is switched on until you say yes.</span>
+  <span class="consent-btns"><button type="button" class="btn small" id="consentYes">Allow</button><button type="button" class="btn ghost small" id="consentNo">No thanks</button></span>
+</div>
+<script>
+(function(){
+  var GTM="{{ gtm_id }}",GA="{{ ga_id }}",KEY="fetchly-consent";
+  function add(src){var s=document.createElement("script");s.async=true;s.src=src;document.head.appendChild(s)}
+  function load(){
+    window.dataLayer=window.dataLayer||[];
+    if(GTM){dataLayer.push({"gtm.start":Date.now(),event:"gtm.js"});add("https://www.googletagmanager.com/gtm.js?id="+encodeURIComponent(GTM))}
+    else if(GA){window.gtag=function(){dataLayer.push(arguments)};gtag("js",new Date());gtag("config",GA);add("https://www.googletagmanager.com/gtag/js?id="+encodeURIComponent(GA))}
+  }
+  var saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+  var box=document.getElementById("consent");
+  if(saved==="yes")load();
+  else if(saved===null&&box){
+    box.hidden=false;
+    document.getElementById("consentYes").onclick=function(){try{localStorage.setItem(KEY,"yes")}catch(e){}box.hidden=true;load()};
+    document.getElementById("consentNo").onclick=function(){try{localStorage.setItem(KEY,"no")}catch(e){}box.hidden=true};
+  }
+})();
+</script>
+{% endif %}

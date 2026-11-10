@@ -1,0 +1,31 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ seo.title }}</title>
+<meta name="description" content="{{ seo.description }}">
+<link rel="canonical" href="{{ base_url }}{{ seo.path }}">
+<meta name="robots" content="{{ 'noindex, nofollow' if seo.noindex else 'index, follow, max-image-preview:large' }}">
+<meta name="theme-color" content="{{ seo.theme or '#14213D' }}">
+{% if gsc_verify %}<meta name="google-site-verification" content="{{ gsc_verify }}">
+{% endif %}{% if bing_verify %}<meta name="msvalidate.01" content="{{ bing_verify }}">
+{% endif %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Fetchly">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="{{ seo.title }}">
+<meta property="og:description" content="{{ seo.description }}">
+<meta property="og:url" content="{{ base_url }}{{ seo.path }}">
+<meta property="og:image" content="{{ base_url }}/static/og-image.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Fetchly: save any video, photo or tweet with just its link">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ seo.title }}">
+<meta name="twitter:description" content="{{ seo.description }}">
+<meta name="twitter:image" content="{{ base_url }}/static/og-image.jpg">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+<link rel="preload" href="{{ asset('fonts/inter-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
+{% for block in seo.ld or [] %}<script type="application/ld+json">{{ block|tojson }}</script>
+{% endfor %}

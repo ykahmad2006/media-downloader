@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_head.html" %}
+{% include "_home_css.html" %}
+</head>
+<body>
+<div class="hero" id="top">
+  {% set active = "" %}{% include "_home_top.html" %}
+  <div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › <a href="/#tools">Tools</a> › {{ s.name }}</nav>
+    <h1>{{ s.h1 }}</h1>
+    <p class="lead">{{ s.intro }}</p>
+    {% include "_form.html" %}
+  </div>
+</div>
+
+<section><div class="wrap">
+  <h2>What you <b>get</b></h2>
+  <p class="sub">{{ s.blurb }}</p>
+  <div class="pts">
+    {% for p in s.points %}<div class="pt"><p>{{ p }}</p></div>
+    {% endfor %}
+  </div>
+</div></section>
+
+<section class="alt"><div class="wrap">
+  <h2>How it <b>works</b></h2>
+  <p class="sub">The same few steps every time.</p>
+  <ol class="steps">
+    {% for step in s.steps %}<li>{{ step }}</li>
+    {% endfor %}
+  </ol>
+</div></section>
+
+<section><div class="wrap" style="max-width:760px">
+  <h2>Common <b>questions</b></h2>
+  <p class="sub">About {{ s.short }}.</p>
+  {% for q, a in s.faq %}<details><summary>{{ q }}</summary><p>{{ a }}</p></details>
+  {% endfor %}
+</div></section>
+
+<section class="alt"><div class="wrap">
+  <h2>More <b>tools</b></h2>
+  <p class="sub">Other things Fetchly can do with a link.</p>
+  <div class="tools">
+    {% for r in related %}<a class="tool" href="/{{ r.slug }}"><b>{{ r.name }}</b><span>{{ r.blurb }}</span><em>Open ↗</em></a>
+    {% endfor %}
+  </div>
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <h3>Ready? <b>Paste your link.</b></h3>
+  <a class="btn" href="#top" onclick="setTimeout(()=>url.focus(),400)">Start downloading</a>
+</div></div>
+
+{% include "_home_footer.html" %}
+{% include "_analytics.html" %}
+</body>
+</html>

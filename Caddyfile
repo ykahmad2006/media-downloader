@@ -2,11 +2,14 @@
 	# Hide the server banner
 	header -Server
 
-	# Compress pages and data only. Never compress downloads: video and audio are already
+	# Compress pages, data, the sitemap and icons. Never compress downloads: video and audio are already
 	# compressed, and compressing hides the file size, so the browser loses its progress bar.
 	encode zstd gzip {
 		match {
 			header Content-Type text/*
+			header Content-Type application/json*
+			header Content-Type application/xml*
+			header Content-Type image/svg+xml*
 		}
 	}
 

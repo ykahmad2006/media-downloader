@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_head.html" %}
+{% include "_home_css.html" %}
+</head>
+<body>
+<div class="hero" id="top" style="padding-bottom:64px">
+  {% set active = "" %}{% include "_home_top.html" %}
+  <div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> › Rights and privacy</nav>
+    <h1>Rights and <b>privacy</b></h1>
+    <p class="lead">What Fetchly does with your links and files, and what you may save with it.</p>
+  </div>
+</div>
+
+<section><div class="wrap prose">
+  <h2>What you may save</h2>
+  <p>Fetchly is for videos, photos and pictures you made yourself, things shared under a licence that allows it, and anything the owner has said you may keep. Most things on the big platforms belong to someone else, and saving them without permission can break a site’s rules and copyright law. You are responsible for what you download and what you do with it.</p>
+  <h2>What we handle</h2>
+  <ul>
+    <li><b>Links you paste.</b> We read the public page to list what can be saved. The link and the options we found are kept in memory for up to an hour, then dropped.</li>
+    <li><b>Photos you upload</b> for “Photo with the tweet across it” are used only to make your picture. They are not shared or kept for any other purpose.</li>
+    <li><b>Files we make for you</b> are deleted a few minutes after you download them, and unused files are deleted within an hour.</li>
+    <li><b>No accounts.</b> We never ask for your name, email or a login.</li>
+  </ul>
+  <h2>Logs and security</h2>
+  <p>To keep the service running and stop abuse, our web server may record your IP address and the time of each request, and a limit on how many downloads one visitor can run is kept in memory. We do not sell or share this.</p>
+  <h2>Cookies and analytics</h2>
+  <p>Fetchly sets no cookies by default and uses no advertising. If the site owner turns on analytics, a notice asks first, and nothing loads until you choose Allow. Your choice is remembered in your browser only. Fonts are served from this site, not from a third party.</p>
+  <h2>Pictures and emoji</h2>
+  <p>Emoji in tweet pictures are drawn with Twemoji (CC-BY 4.0), fetched from a public code host and cached. Profile pictures and tweets are fetched from the platform at your request and are not stored beyond the download time above.</p>
+  <h2>If you own something and want it blocked</h2>
+  <p>If you own content and do not want it to be downloadable through Fetchly, {% if contact %}write to <a href="mailto:{{ contact }}">{{ contact }}</a> with the link and we will act on it.{% else %}contact the site owner with the link. The owner’s contact details are added here when the site goes live.{% endif %}</p>
+</div></section>
+
+{% include "_home_footer.html" %}
+{% include "_analytics.html" %}
+</body>
+</html>

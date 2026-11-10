@@ -1,71 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>Choose your download | Fetchly</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e1251b'/%3E%3Cpath d='M32 14v26m-12-12 12 12 12-12M18 50h28' stroke='%23fff' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Raleway:wght@400;600;700&display=swap" rel="stylesheet">
+{% include "_head.html" %}
 <style>
+@font-face{font-family:"Inter";src:url("{{ asset('fonts/inter-latin.woff2') }}") format("woff2");font-weight:300 800;font-style:normal;font-display:swap}
+:root{--forest:#1F3D2B;--forest-d:#12261A;--sand:#E8DCC4;--sand-2:#F3EBD9;--ink:#1F3D2B;--muted:#5C6B58;--purple:#8B5CF6;--btn:#7C3AED;--btn-h:#6D28D9;--line:rgba(31,61,43,.16)}
 *{box-sizing:border-box;margin:0}
-body{font:15px/1.7 "Open Sans",Arial,sans-serif;color:#666;background:#f2f2f3}
-h1,h2,h3,.logo,.btn{font-family:Raleway,Arial,sans-serif}
+html{background:var(--forest-d)}
+body{min-height:100vh;font:15px/1.65 Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--sand);-webkit-font-smoothing:antialiased;
+  background:radial-gradient(72% 46% at 50% 108%,rgba(139,92,246,.8) 0,rgba(139,92,246,0) 70%),
+  radial-gradient(rgba(232,220,196,.14) 1px,transparent 1.7px) 0 0/22px 22px,var(--forest)}
 a{color:inherit;text-decoration:none}
-.wrap{max-width:860px;margin:0 auto;padding:0 20px}
-.hero{background:radial-gradient(ellipse at 30% 0,#4a5058 0,transparent 60%),linear-gradient(#24272b,#15171a);color:#fff;padding:20px 0 44px}
-.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:34px;font-size:13px;color:#bbb}
-.logo{font-size:26px;font-weight:700;color:#fff}.logo i{color:#e1251b;font-style:normal}
-h1{font-size:clamp(24px,4vw,34px);letter-spacing:2px;text-transform:uppercase;font-weight:600}
-.media{display:flex;gap:18px;align-items:center;background:#fff;padding:16px;margin:-28px 0 26px;box-shadow:0 4px 16px #0002}
-.media img{width:150px;aspect-ratio:16/9;object-fit:cover;background:#2a2a2b}
-.media h2{font-size:17px;color:#2a2a2b;line-height:1.3}
-h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#2a2a2b;margin:26px 0 10px}
-.opt{display:flex;align-items:center;gap:14px;background:#fff;padding:12px 16px;margin-bottom:8px;border-left:4px solid #e1251b}
-.pv{width:54px;height:96px;object-fit:cover;background:#2a2a2b;flex:none}
-.opt.ovl{flex-wrap:wrap;gap:12px 18px}.ovbody{flex:1 1 100%;min-width:0}.ovbody>b{display:block}.ovbody>span{font-size:13px}
+.wrap{max-width:860px;margin:0 auto;padding:0 22px}
+a:focus-visible,.btn:focus-visible{outline:3px solid var(--purple);outline-offset:3px}
+
+/* header: a pill menu and a big friendly title, like the plant shop it is based on */
+.head .wrap{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:22px}
+.logo{font-weight:700;font-size:23px;letter-spacing:-.02em;color:var(--sand)}.logo i{color:var(--purple);font-style:normal}
+.pillnav{display:flex;gap:2px;list-style:none;padding:5px;background:rgba(232,220,196,.08);border:1px solid rgba(232,220,196,.2);border-radius:999px;padding-left:5px}
+.pillnav a{display:block;white-space:nowrap;font-size:13px;font-weight:500;padding:8px 16px;border-radius:999px;color:rgba(232,220,196,.88)}
+.pillnav a.on,.pillnav a:hover{background:rgba(232,220,196,.16);color:#fff}
+.outline{font-size:13px;font-weight:600;padding:9px 18px;border:1px solid rgba(139,92,246,.9);border-radius:999px;color:#fff}.outline:hover{background:rgba(139,92,246,.35)}
+.titleblock{text-align:center;padding:54px 0 6px}
+h1{font-weight:700;font-size:clamp(34px,5.6vw,58px);line-height:1.05;letter-spacing:-.035em;color:var(--sand)}
+.star{width:.62em;height:.62em;vertical-align:.04em;margin-left:.08em}
+.hints{display:flex;gap:6px 22px;justify-content:center;flex-wrap:wrap;margin-top:16px;font-size:12px;color:rgba(232,220,196,.7)}
+
+.media{display:flex;gap:18px;align-items:center;background:var(--sand);color:var(--ink);padding:16px;border-radius:24px;margin:34px 0 8px;box-shadow:0 22px 50px rgba(0,0,0,.35);transform:rotate(-.7deg)}
+.media img{width:150px;aspect-ratio:16/9;object-fit:cover;background:#cdbf9f;border-radius:14px}
+.media h2{font-size:18px;font-weight:700;line-height:1.3;letter-spacing:-.01em}.media p{color:var(--muted);font-size:14px}
+h3{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:rgba(232,220,196,.9);margin:34px 0 12px}
+h3:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--purple);box-shadow:0 0 0 4px rgba(139,92,246,.3)}
+
+.opt{display:flex;align-items:center;gap:14px;background:var(--sand);color:var(--ink);padding:14px 18px;border-radius:20px;margin-bottom:10px;box-shadow:0 10px 30px rgba(0,0,0,.22);transition:transform .2s,box-shadow .2s}
+.opt:hover{transform:translateY(-2px);box-shadow:0 16px 38px rgba(0,0,0,.3)}
+.opt>div{flex:1}.opt b{display:block;font-weight:700;letter-spacing:-.01em}.opt>div>span{font-size:13px;color:var(--muted)}
+.opt em{font-style:normal;font-weight:600;white-space:nowrap}
+.pv{width:54px;height:96px;object-fit:cover;background:#cdbf9f;border-radius:12px;flex:none}
+.opt.big{opacity:.6}.opt.big:hover{transform:none}
+.tag{display:inline-block;margin-left:8px;padding:2px 11px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:var(--purple);color:#fff;border-radius:999px;transform:rotate(-4deg);vertical-align:2px}
+.btn{height:44px;padding:0 24px;border:0;border-radius:999px;background:var(--btn);color:#fff;font:700 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .2s,transform .2s;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
+.btn:hover{background:var(--btn-h)}.btn:disabled{background:#9b93b5;cursor:not-allowed}.btn.ghost{background:rgba(232,220,196,.18);color:#fff}.btn.small{height:38px;padding:0 16px;font-size:13px}
+
+/* tweet over a photo: the same sand card, with pills in the same purple */
+.opt.ovl{flex-wrap:wrap;gap:12px 18px}.opt.ovl:hover{transform:none}.ovbody{flex:1 1 100%;min-width:0}.ovbody>b{display:block}.ovbody>span{font-size:13px;color:var(--muted)}
 .ovrows{margin-top:10px}.ovrow{display:flex;align-items:center;flex-wrap:wrap;padding:5px 0}.ovrow.sub{padding-left:70px}
-.ovlabel{flex:0 0 70px;font:700 11px Raleway,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#2a2a2b}
+.ovlabel{flex:0 0 70px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
 .ctl{flex:1 1 0;min-width:0}
 .ovfile{display:inline-flex;align-items:center;gap:10px;cursor:pointer;position:relative;max-width:100%}
 .ovfile input,.seg input{position:absolute;opacity:0;width:1px;height:1px}
-.pick{display:inline-block;padding:7px 14px;border:1px solid #2a2a2b;color:#2a2a2b;background:#fff;font:700 12px Raleway,Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
-.ovfile:hover .pick{background:#2a2a2b;color:#fff}.ovfile:focus-within .pick{outline:3px solid #e1251b;outline-offset:2px}.ovfile.off{opacity:.4;pointer-events:none}
-.ovfile .name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}.ovthumb{width:36px;height:36px;object-fit:cover;background:#2a2a2b}
-.ovcheck{font-size:13px;cursor:pointer}.ovcheck small{color:#888}
+.pick{display:inline-block;padding:7px 16px;border:1px solid var(--ink);border-radius:999px;color:var(--ink);background:transparent;font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.ovfile:hover .pick{background:var(--ink);color:var(--sand)}.ovfile:focus-within .pick{outline:3px solid var(--purple);outline-offset:2px}.ovfile.off{opacity:.4;pointer-events:none}
+.ovfile .name{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}.ovthumb{width:36px;height:36px;object-fit:cover;background:#cdbf9f;border-radius:10px}
+.ovcheck{font-size:13px;cursor:pointer;color:var(--ink)}.ovcheck small{color:var(--muted)}.ovcheck input{accent-color:var(--btn)}
 .seg label{display:inline-block;margin:0 6px 0 0;cursor:pointer;position:relative}
-.seg label span{display:inline-block;padding:6px 14px;border:1px solid #ccc;background:#fff;font:600 13px "Open Sans",Arial,sans-serif;color:#2a2a2b;white-space:nowrap}
-.seg label:hover span{border-color:#2a2a2b}.seg input:checked+span{background:#2a2a2b;border-color:#2a2a2b;color:#fff}.seg input:focus-visible+span{outline:3px solid #e1251b;outline-offset:2px}
-.seg .sw{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid #888;margin-right:7px;vertical-align:-1px}
+.seg label span{display:inline-block;padding:6px 15px;border:1px solid var(--line);border-radius:999px;background:var(--sand-2);font-weight:600;font-size:13px;color:var(--ink);white-space:nowrap}
+.seg label:hover span{border-color:var(--ink)}.seg input:checked+span{background:var(--btn);border-color:var(--btn);color:#fff}.seg input:focus-visible+span{outline:3px solid var(--purple);outline-offset:2px}
+.seg .sw{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid #8a8a8a;margin-right:7px;vertical-align:-1px}
 .opt.ovl>.btn{margin-left:auto}
-.opt.big{border-left-color:#bbb;opacity:.65}
-.opt>div{flex:1}.opt b{display:block;color:#2a2a2b;font-family:Raleway}.opt>div>span{font-size:13px}
-.opt em{font-style:normal;font-weight:600;color:#2a2a2b;white-space:nowrap}
-.tag{display:inline-block;margin-left:8px;padding:0 8px;font:700 10px/18px Raleway;letter-spacing:1px;text-transform:uppercase;background:#e1251b;color:#fff;vertical-align:2px}
-.btn{height:42px;padding:0 22px;border:0;background:#e1251b;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:1px;cursor:pointer}
-.btn:hover{background:#c41d14}.btn:disabled{background:#999;cursor:not-allowed}
-.btn:focus-visible,a:focus-visible{outline:3px solid #2a2a2b;outline-offset:2px}
-.job{background:#fff;padding:16px 18px;margin:22px 0 0;border-left:4px solid #2a2a2b;box-shadow:0 4px 16px #0001}
-.job .row{display:flex;justify-content:space-between;gap:12px;font:600 14px Raleway;color:#2a2a2b}
-.track{height:8px;background:#e6e6e8;margin-top:10px;overflow:hidden}
-.fill{height:100%;width:0;background:#e1251b;transition:width .4s}
-.fill.ind{width:35%;animation:slide 1.1s infinite ease-in-out}
-@keyframes slide{from{margin-left:-35%}to{margin-left:100%}}
-#msg{margin:16px 0;min-height:26px;font-weight:600}#msg.ok{color:#2e8b3d}#msg.err{color:#c41d14}
-#msg a{text-decoration:underline}
-.note{font-size:13px;border-top:1px solid #ddd;padding:18px 0 40px}
-footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
-@media(max-width:620px){.media{flex-direction:column;align-items:flex-start}.opt{flex-wrap:wrap}.opt.ovl>.btn{width:100%}.ovlabel{flex-basis:100%}.ovrow.sub{padding-left:0}}
-@media(prefers-reduced-motion:reduce){.fill.ind{animation:none;width:100%;opacity:.5}}
+
+/* progress: a dial, like the gauge in the design */
+.job{display:flex;align-items:center;gap:22px;background:var(--sand);color:var(--ink);border-radius:24px;padding:18px 24px;margin:28px 0 0;box-shadow:0 22px 50px rgba(0,0,0,.3)}
+.job[hidden]{display:none}
+.gwrap{position:relative;width:150px;flex:none}.gauge{display:block;width:100%;height:auto}
+.gt,.gf{fill:none;stroke-width:12;stroke-linecap:round}.gt{stroke:rgba(31,61,43,.14)}
+.gf{stroke:var(--purple);stroke-dasharray:157.08;stroke-dashoffset:157.08;transition:stroke-dashoffset .45s ease}
+.gf.ind{stroke-dasharray:44 113.08;transition:none;animation:sweep 1.5s linear infinite}
+@keyframes sweep{from{stroke-dashoffset:44}to{stroke-dashoffset:-157.08}}
+.gnum{position:absolute;left:0;right:0;bottom:2px;text-align:center;font-weight:700;font-size:26px;letter-spacing:-.02em}
+.gtext b{display:block;font-size:18px;letter-spacing:-.01em}.gtext span{font-size:13px;color:var(--muted)}
+#msg{margin:18px 0;min-height:26px;font-weight:600}#msg.ok{color:#C8F0D2}#msg.err{color:#FFC7BC}#msg a{text-decoration:underline}
+.note{font-size:13px;color:rgba(232,220,196,.78);border-top:1px solid rgba(232,220,196,.2);padding:20px 0 38px}
+footer{font-size:13px;color:rgba(232,220,196,.8);padding:0 0 44px}footer a{text-decoration:underline}
+
+.consent{position:fixed;left:16px;right:16px;bottom:16px;max-width:600px;margin:auto;padding:16px 20px;border-radius:22px;background:var(--sand);color:var(--ink);box-shadow:0 18px 50px rgba(0,0,0,.45);display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;z-index:50;font-size:14px}
+.consent[hidden]{display:none}.consent-btns{display:flex;gap:8px}.consent .btn.ghost{background:rgba(31,61,43,.12);color:var(--ink)}
+
+@media(max-width:760px){.pillnav{display:none}.media{flex-direction:column;align-items:flex-start;transform:none}.opt{flex-wrap:wrap}.opt.ovl>.btn{width:100%}.ovlabel{flex-basis:100%}.ovrow.sub{padding-left:0}.job{flex-direction:column;align-items:flex-start}}
+@media(prefers-reduced-motion:reduce){.gf.ind{animation:none;stroke-dasharray:157.08;stroke-dashoffset:60;opacity:.6}.opt,.btn{transition:none}}
 </style>
 </head>
 <body>
-<div class="hero"><div class="wrap">
-  <div class="bar"><a class="logo" href="/">fetch<i>ly</i></a><a href="/">&larr; Try another link</a></div>
-  <h1>Choose your download</h1>
-</div></div>
-<div class="wrap">
+<header class="head"><div class="wrap">
+  <a class="logo" href="/">fetch<i>ly</i></a>
+  <ul class="pillnav">
+    <li><a href="/">Home</a></li>
+    <li><a class="on" href="#choices" aria-current="page">Your options</a></li>
+    <li><a href="/#tools">Tools</a></li>
+    <li><a href="/privacy">Rights and privacy</a></li>
+  </ul>
+  <a class="outline" href="/">&larr; Try another link</a>
+</div></header>
+<div class="wrap" id="choices">
+  <div class="titleblock">
+    <h1>Choose your download <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#8B5CF6"/><path d="M12 5l1.8 5.2L19 12l-5.2 1.8L12 19l-1.8-5.2L5 12l5.2-1.8z" fill="#fff"/></svg></h1>
+    <p class="hints"><span>&rarr; Best quality first</span><span>&rarr; Sizes shown</span><span>&rarr; No sign-up</span></p>
+  </div>
   <div class="media">
     {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}
     <div><h2>{{ d.title }}</h2><p>{{ d.by }}{% if d.by and d.duration %} · {% endif %}{% if d.duration %}{{ d.duration // 60 }}:{{ '%02d'|format(d.duration % 60) }}{% endif %}</p></div>
@@ -101,18 +131,18 @@ footer{background:#2b2b2c;color:#999;font-size:13px;padding:24px 0}
   {% endfor %}
 
   <div class="job" id="job" hidden>
-    <div class="row"><span id="stage">Starting</span><span id="pct"></span></div>
-    <div class="track"><div class="fill ind" id="fill"></div></div>
+    <div class="gwrap"><svg class="gauge" viewBox="0 0 120 66" aria-hidden="true"><path class="gt" d="M10 60A50 50 0 0 1 110 60" fill="none" stroke="#1F3D2B" stroke-opacity=".14" stroke-width="12" stroke-linecap="round"/><path class="gf ind" id="gf" d="M10 60A50 50 0 0 1 110 60" fill="none" stroke="#8B5CF6" stroke-width="12" stroke-linecap="round" stroke-dasharray="157.08" stroke-dashoffset="157.08"/></svg><div class="gnum" id="pct"></div></div>
+    <div class="gtext"><b id="stage">Starting</b><span>You can leave this page open while we work.</span></div>
   </div>
   <p id="msg" role="status" aria-live="polite"></p>
-  <p class="note">Sizes are estimates and may change a little. You can leave this page open while we work. Only download videos you have the right to save: your own, Creative Commons, or ones the owner allows.</p>
+  <p class="note">Sizes are estimates and may change a little. Only download things you have the right to save: your own, Creative Commons, or ones the owner allows.</p>
 </div>
-<footer><div class="wrap">Fetchly · A small tool for saving videos you’re allowed to keep.</div></footer>
+<footer><div class="wrap">Fetchly · A small tool for saving things you’re allowed to keep. · <a href="/privacy">Rights and privacy</a></div></footer>
 <script>
 const token="{{ token }}",KEY="fetchly-job-"+token,
   msg=document.getElementById("msg"),btns=document.querySelectorAll(".opt .btn[data-id]"),ovGo=document.getElementById("ovGo"),
   job=document.getElementById("job"),stage=document.getElementById("stage"),
-  pct=document.getElementById("pct"),fill=document.getElementById("fill");
+  pct=document.getElementById("pct"),gf=document.getElementById("gf");
 let misses=0;
 document.querySelectorAll(".when").forEach(e=>{      // show when each story was posted, in the visitor's own time
   const d=new Date(e.dataset.t);
@@ -126,8 +156,8 @@ function say(t,c){msg.className=c||"";msg.textContent=t}
 function paint(s){
   job.hidden=false;
   stage.textContent=s.stage||"Working";
-  if(s.percent==null){fill.className="fill ind";fill.style.width="";pct.textContent=""}
-  else{fill.className="fill";fill.style.width=s.percent+"%";pct.textContent=s.percent+"%"}
+  if(s.percent==null){gf.setAttribute("class","gf ind");gf.style.strokeDashoffset="";pct.textContent=""}
+  else{gf.setAttribute("class","gf");gf.style.strokeDashoffset=(157.08*(1-s.percent/100)).toFixed(2);pct.textContent=s.percent+"%"}
 }
 function stop(){keep(null);lock(false)}
 function fail(text){stop();job.hidden=true;say(text,"err")}
@@ -203,5 +233,6 @@ if(ovGo){                                   // tweet over a photo: send the phot
 const saved=kept();             // came back to a page with a download in progress
 if(saved){lock(true);paint({stage:"Checking your download"});poll(saved,true)}
 </script>
+{% include "_analytics.html" %}
 </body>
 </html>
