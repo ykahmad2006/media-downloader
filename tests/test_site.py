@@ -191,7 +191,105 @@ def check_overlay():
     print("OK  tweet over a photo: uploads, bad files, limits")
 
 
+def check_platforms():
+    """TikTok, Instagram, X and YouTube each get the right choices, with the sites faked and FFmpeg real."""
+    import subprocess
+    import tempfile
+    from PIL import Image
+    from yt_dlp.utils import DownloadError
+    import fetchly_core as core
+
+    video_file = os.path.join(tempfile.mkdtemp(), "src.mp4")
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25", "-f", "lavfi", "-i",
+                    "sine=frequency=440", "-t", "3", "-pix_fmt", "yuv420p", "-shortest", video_file], check=True)
+
+    state = {"ytdlp": "ok", "listing": [], "ytdlp_calls": 0}
+    formats = [{"format_id": "h", "ext": "mp4", "vcodec": "h264", "acodec": "aac", "width": 576, "height": 1024, "tbr": 900, "fps": 30, "url": "u", "protocol": "https"}]
+
+    class FakeYDL:
+        def __init__(self, opts=None, *a, **k): self.opts = opts or {}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, *a, **k):
+            state["ytdlp_calls"] += 1
+            if state["ytdlp"] == "fail":
+                raise DownloadError("Unable to extract webpage video data")
+            return {"title": "A clip", "duration": 3, "thumbnail": "https://x/cover.jpg", "formats": formats}
+        def download(self, urls):
+            folder = os.path.dirname(self.opts["outtmpl"]["thumbnail"]) if isinstance(self.opts.get("outtmpl"), dict) else None
+            if folder:
+                Image.new("RGB", (64, 64), (200, 30, 30)).save(os.path.join(folder, "cover.webp"), "WEBP")
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, **kw):
+        if isinstance(cmd, list) and "gallery_dl" in cmd:
+            class Result: stderr = ""
+            Result.stdout = json.dumps(state["listing"])
+            if "-d" in cmd:                                    # a download: put a video where gallery-dl would
+                folder = cmd[cmd.index("-d") + 1]
+                os.makedirs(os.path.join(folder, "tt"), exist_ok=True)
+                import shutil
+                shutil.copy(video_file, os.path.join(folder, "tt", "post.mp4"))
+            return Result()
+        return real_run(cmd, **kw)
+
+    core.yt_dlp.YoutubeDL, core.subprocess.run, core.gallery_supports = FakeYDL, fake_run, lambda u: True
+    clip = {"type": "video", "extension": "mp4", "width": 1080, "height": 1920, "duration": 15, "desc": "My clip", "author": {"uniqueId": "someone"}}
+    listing = lambda *metas: [[2, {}]] + [[3, f"https://t/{i}", m] for i, m in enumerate(metas)]
+    ids = lambda r: [(o["id"], o["kind"]) for o in r["options"]]
+
+    r = core.analyze("https://www.tiktok.com/@someone/video/123")                      # 1. the usual reader works
+    kinds = {k for _, k in ids(r)}
+    assert {"video", "audio", "gif", "cover"} <= kinds and "zip" not in kinds, ids(r)
+
+    state.update(ytdlp="fail", listing=listing(clip))                                  # 2. TikTok refuses the usual reader
+    r = core.analyze("https://www.tiktok.com/@someone/video/123")
+    assert ids(r) == [("item1", "video"), ("fbmp3" + "1", "audio"), ("fbgif1", "gif")], ids(r)
+    assert r["title"] == "My clip" and r["by"] == "@someone" and not any("lideshow" in o["label"] for o in r["options"])
+    for oid, extension in (("item1", ".mp4"), ("fbmp3" + "1", ".mp3"), ("fbgif1", ".gif")):   # 3. and each choice really delivers
+        path = core.fetch("https://www.tiktok.com/@someone/video/123", oid, tempfile.mkdtemp())
+        assert path.endswith(extension) and os.path.getsize(path) > 1000, (oid, path)
+    gif = core.fetch("https://www.tiktok.com/@someone/video/123", "fbgif1", tempfile.mkdtemp())
+    assert core.probe_video(gif)[0] == 640, "the GIF keeps the clip's own width"
+
+    state.update(ytdlp="ok", ytdlp_calls=0, listing=listing(                           # 4. a photo post: photos, the song, a slideshow, no video reader
+        {"type": "image", "extension": "jpeg", "width": 1080, "height": 1920}, {"type": "image", "extension": "jpeg", "width": 1080, "height": 1920},
+        {"type": "audio", "extension": "mp3"}))
+    r = core.analyze("https://www.tiktok.com/@someone/photo/456")
+    assert state["ytdlp_calls"] == 0, "a photo post must not be sent to the video reader"
+    assert [o["label"] for o in r["options"]] == ["Photo 1 of 3", "Photo 2 of 3", "The song from the post", "Slideshow video (MP4)"], [o["label"] for o in r["options"]]
+
+    state.update(ytdlp="fail", listing=[[-1, {"error": "HttpError", "message": "403"}]])        # 5. everything refused: a reason, not a fake button
+    try:
+        core.analyze("https://www.tiktok.com/@someone/video/789")
+        raise AssertionError("should have refused")
+    except core.LinkError as error:
+        assert "TikTok" in str(error) and "lideshow" not in str(error)
+
+    import requests                                                                    # 6. short links are followed, but only through TikTok
+    class Hop:
+        def __init__(self, code, where=None): self.status_code, self.headers = code, ({"Location": where} if where else {})
+        def close(self): pass
+    hops = {"https://vm.tiktok.com/abc": Hop(301, "https://www.tiktok.com/@u/video/123?utm=1"), "https://www.tiktok.com/@u/video/123?utm=1": Hop(200),
+            "https://vm.tiktok.com/evil": Hop(301, "http://127.0.0.1/secret")}
+    requests.get = lambda url, **kw: hops[url]
+    assert core.resolve_link("https://vm.tiktok.com/abc") == "https://www.tiktok.com/@u/video/123"
+    assert core.resolve_link("https://vm.tiktok.com/evil") == "https://vm.tiktok.com/evil", "a redirect away from TikTok must not be followed"
+
+    state.update(ytdlp="ok")                                                           # 7. a cover picture is one image file, for any video
+    cover = core.fetch("https://www.youtube.com/watch?v=abc", "cover", tempfile.mkdtemp())
+    assert cover.endswith((".png", ".jpg")) and Image.open(cover).size == (64, 64), cover
+
+    for text, site, expect in (("Sign in to confirm you're not a bot", "youtube", "robot"), ("This video is private", "youtube", "private"),
+                               ("Login required", "instagram", "logged-in"), ("HTTP Error 403", "x", "turning this server away"),
+                               ("Video unavailable", "youtube", "unavailable"), ("Unsupported URL: https://x.y", "", "isn’t one Fetchly can read")):
+        assert expect in core.explain(text, site), (text, core.explain(text, site))
+    assert core.explain("something odd", "youtube") is None
+    print("OK  platforms: TikTok video, fallback, photo post, short links, cover pictures, plain-words errors")
+
+
 if __name__ == "__main__":
-    for check in (check_pages, check_passcode, check_downloads, check_overlay):
+    for check in (check_pages, check_passcode, check_downloads, check_overlay, check_platforms):
         check()
     print("\nAll checks passed.")

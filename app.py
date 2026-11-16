@@ -158,7 +158,7 @@ def remember(result, url):
         for token, _ in oldest:
             CACHE.pop(token, None)
     token = uuid.uuid4().hex[:12]
-    CACHE[token] = {**result, "url": url, "at": time.time()}
+    CACHE[token] = {"url": url, **result, "at": time.time()}      # the link as analysed (short links resolved) wins
     return token
 
 

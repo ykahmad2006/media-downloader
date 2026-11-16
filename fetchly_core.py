@@ -16,6 +16,7 @@ import sys
 import tempfile
 import traceback
 from contextlib import contextmanager
+from urllib.parse import urljoin, urlparse
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -43,7 +44,11 @@ try:                       # tweet scrolls need: pip install pillow fonttools re
 except ImportError:
     tweetcard, HAS_CARD = None, False
     CardError = type("CardError", (Exception,), {})
-FRIENDLY = (CardError, PictureError)   # errors whose message is safe to show to the visitor
+class LinkError(Exception):
+    """A plain-words reason a link could not be read, safe to show to the visitor."""
+
+
+FRIENDLY = (CardError, PictureError, LinkError)   # errors whose message is safe to show to the visitor
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 HAS_GALLERY = importlib.util.find_spec("gallery_dl") is not None
@@ -102,7 +107,19 @@ def cookie_copy():
         yield None
 
 
-def ydl_opts(cookies=None, extra=None):
+def browser_identity():
+    """yt-dlp's 'act like Chrome' setting, when the optional curl-cffi library is installed. TikTok often refuses plain requests."""
+    try:
+        from yt_dlp.dependencies import curl_cffi
+        if not curl_cffi:
+            return None
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        return ImpersonateTarget.from_str("chrome")
+    except Exception:
+        return None
+
+
+def ydl_opts(cookies=None, extra=None, url=None):
     o = {"quiet": True, "noplaylist": True, "ignoreerrors": False,
          "socket_timeout": 30, "retries": 3}
     if not ALLOW_GENERIC:
@@ -111,6 +128,8 @@ def ydl_opts(cookies=None, extra=None):
         o["cookiefile"] = cookies
     elif COOKIES_BROWSER:
         o["cookiesfrombrowser"] = (COOKIES_BROWSER,)
+    if url and site_of(url) == "tiktok" and browser_identity():
+        o["impersonate"] = browser_identity()
     return {**o, **(extra or {})}
 
 
@@ -172,6 +191,80 @@ def gallery_supports(url):
         return True  # if the check itself breaks, keep the old behaviour
 
 
+def site_of(url):
+    """Which of the four sites a link belongs to: tiktok, instagram, x, youtube, or an empty string."""
+    host = (urlparse(url).hostname or "").lower()
+    for name, domains in (("tiktok", ("tiktok.com",)), ("instagram", ("instagram.com", "instagr.am")),
+                          ("x", ("x.com", "twitter.com")), ("youtube", ("youtube.com", "youtu.be"))):
+        if any(host == d or host.endswith("." + d) for d in domains):
+            return name
+    return ""
+
+
+def tiktok_kind(url):
+    """photo for a TikTok photo post, video for a video, unknown for anything else (short links, profiles)."""
+    path = urlparse(url).path
+    return "photo" if "/photo/" in path else "video" if "/video/" in path else "unknown"
+
+
+def resolve_link(url):
+    """TikTok short links (vm.tiktok.com, /t/...) are followed to the real post, one hop at a time and only through TikTok."""
+    import requests
+    host = (urlparse(url).hostname or "").lower()
+    if not (host in ("vm.tiktok.com", "vt.tiktok.com") or (site_of(url) == "tiktok" and urlparse(url).path.startswith("/t/"))):
+        return url
+    current = url
+    try:
+        for _ in range(4):
+            reply = requests.get(current, allow_redirects=False, timeout=8, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+            reply.close()
+            where = reply.headers.get("Location")
+            if not (300 <= reply.status_code < 400 and where):
+                break
+            nxt = urljoin(current, where)
+            if site_of(nxt) != "tiktok":
+                break
+            current = nxt
+    except Exception:
+        return url
+    parts = urlparse(current)
+    return f"{parts.scheme}://{parts.netloc}{parts.path}" if "/video/" in parts.path or "/photo/" in parts.path else url
+
+
+def explain(error, site):
+    """Turn a technical failure into a plain sentence for the visitor. None means: nothing more useful to say."""
+    text = str(error or "").lower()
+    name = {"tiktok": "TikTok", "instagram": "Instagram", "x": "X", "youtube": "YouTube"}.get(site, "That site")
+    if "not a bot" in text or "confirm you" in text:
+        return ("YouTube is asking this server to prove it is not a robot, which it often does to servers. "
+                "Try again later, or ask the site owner to add a cookies file.")
+    if "private" in text and ("video" in text or "post" in text or "account" in text):
+        return f"That {name} post is private, so it can’t be saved."
+    if "age" in text and ("restrict" in text or "confirm your age" in text or "inappropriate" in text):
+        return "That video is age-restricted, so only logged-in viewers can see it."
+    if any(w in text for w in ("login", "log in", "sign in", "cookies")):
+        return (f"{name} only shows that to logged-in viewers or to browsers it trusts. "
+                "If it plays in your browser while you are logged out, try again in a minute. Otherwise the site owner can add cookies.")
+    if any(w in text for w in ("blocked", "403", "429", "too many requests", "rate limit", "rate-limit", "ip address")):
+        return f"{name} is turning this server away right now. Please try again in a little while."
+    if any(w in text for w in ("unavailable", "removed", "not available", "does not exist", "could not be found", "404")):
+        return f"That {name} post is unavailable. It may have been removed or made private."
+    if "unsupported url" in text:
+        return "That link isn’t one Fetchly can read. Paste the link of the post or video itself."
+    if site == "tiktok":
+        return ("TikTok would not show that post to this computer. Open the link in your browser while logged out: if it plays there, "
+                "try again in a minute. If it keeps failing, the site owner can add TikTok cookies.")
+    return None
+
+
+def _is_video(meta):
+    return (meta.get("type") == "video") or (meta.get("extension") or "").lower() in VIDEO_EXT
+
+
+def _is_song(meta):
+    return (meta.get("type") == "audio") or (meta.get("extension") or "").lower() in SONG_EXT
+
+
 def cookie_args(cookies):
     """gallery-dl's way of being given the login cookies."""
     if cookies:
@@ -227,16 +320,19 @@ def analyze(url):
         detail = " · ".join(x for x in ["Best quality, one image file", size] if x)
         return {"title": f"Profile picture of @{target['handle']}", "thumb": found.get("preview"), "duration": 0,
                 "by": target["platform"], "options": [opt("avatar", "avatar", "Profile picture", detail, None)]}
-    info, options, failure = {}, [], None
+    url = resolve_link(url)
+    site = site_of(url)
+    info, options, failure, items_error = {}, [], None, None
     with cookie_copy() as cookies:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts(cookies)) as ydl:
-                info = ydl.extract_info(url, download=False) or {}
-            options = build_options(info)
-        except DownloadError as error:
-            failure = error
-            if not HAS_GALLERY:
-                raise
+        if not (site == "tiktok" and tiktok_kind(url) == "photo"):   # a TikTok photo post is not a video: go to the photo reader
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts(cookies, url=url)) as ydl:
+                    info = ydl.extract_info(url, download=False) or {}
+                options = build_options(info)
+            except DownloadError as error:
+                failure = error
+                if not HAS_GALLERY:
+                    raise LinkError(explain(error, site)) if explain(error, site) else error
         has_video = any(o["kind"] == "video" for o in options)
         # A tweet that is only words: offer to draw it as a scroll
         tweet = None
@@ -246,16 +342,33 @@ def analyze(url):
                 tweet = None if found["media"] else found      # tweets with photos keep the normal flow
             except Exception as error:
                 print("Could not read that tweet:", error, file=sys.stderr)
-        # Instagram stories and carousels: list every photo and video on its own
+        # Photos, carousels, stories, TikTok posts: ask gallery-dl what is in the post, item by item
         items = []
-        if gallery_supports(url) and not tweet and ("instagram.com" in url or not has_video):
+        if gallery_supports(url) and not tweet and (site == "instagram" or not has_video):
             try:
                 items = gallery_items(url, cookies)
             except Exception as error:
+                items_error = error
                 print("Could not list the items of that post:", error, file=sys.stderr)  # shows up in the server log
                 failure = failure or error
+    videos = [(n, m) for n, m in enumerate(items, 1) if _is_video(m)]
+    tiktok_video = site == "tiktok" and not has_video and bool(videos)      # TikTok's own best file, when the usual reader is refused
     show_items = len(items) >= 2 or (len(items) == 1 and not has_video)
-    if show_items:
+    if has_video and (info.get("thumbnail") or info.get("thumbnails")):
+        options.append(opt("cover", "cover", "Cover picture", "The video's cover image, as one file", None))
+    if tiktok_video:
+        n, meta = videos[0]
+        w, h, seconds = meta.get("width"), meta.get("height"), meta.get("duration")
+        detail = " · ".join(x for x in ["MP4", f"{w}x{h}" if w and h else "", f"{int(seconds)}s" if seconds else "", "best quality TikTok gives out"] if x)
+        options.append(opt(f"item{n}", "video", "Video", detail, None))
+        if HAS_FFMPEG:
+            options.append(opt(f"fbmp3{n}", "audio", "MP3 audio", "The sound of the video", None))
+            options.append(opt(f"fbgif{n}", "gif", "Best quality GIF",
+                               f"The clip's own size and speed, up to {GIF_BEST_WIDTH}px, first {GIF_BEST_SECS}s", None))
+        author = meta.get("author")
+        author = author.get("uniqueId") if isinstance(author, dict) else author
+        info = {"title": (str(meta.get("desc") or meta.get("title") or "TikTok video"))[:90], "uploader": f"@{author}" if author else "TikTok"}
+    elif show_items:
         options += item_options(items)
     if tweet:
         options.append(opt("tweet", "image", "Ancient scroll (PNG)",
@@ -263,24 +376,27 @@ def analyze(url):
     if HAS_OVERLAY and tweetcard.tweet_id(url) and (options or tweet):      # any tweet can be drawn across a photo
         options.append(opt("overlay", "overlay", "Photo with the tweet across it",
                            "Upload your photo, or use the tweet's own picture. The tweet is drawn like it looks on X.", None))
-    # Photos, slideshows, carousels and stories come from gallery-dl
-    if (gallery_supports(url) and ("instagram.com" in url or not has_video)
-            and not (show_items and len(items) == 1) and not tweet):
+    # Everything at once: a ZIP, or a slideshow video for a TikTok photo post. Never offered blind for TikTok.
+    if (gallery_supports(url) and (site == "instagram" or not has_video) and not (show_items and len(items) == 1)
+            and not tweet and not tiktok_video and not (site == "tiktok" and not items)):
         what = "story" if "/stories/" in url else "post"
         if not HAS_FFMPEG:
             label, detail = f"All photos and videos in this {what}", "Saved as one ZIP"
-        elif not has_video and "tiktok.com" in url:
+        elif site == "tiktok":
             label, detail = "Slideshow video (MP4)", "Your photos set to the original song"
         else:
             label, detail = f"Everything in this {what} at once", "One file: a ZIP, or an MP4 slideshow if all are photos"
         options.append(opt("gallery", "zip", label, detail, None))
     if not options:
+        reason = explain(" ".join(str(e) for e in (failure, items_error) if e), site)
+        if reason:
+            raise LinkError(reason)
         raise failure or DownloadError("No downloadable media found.")  # keeps the real reason for the log
     if tweet:
         words = re.sub(r"https?://\S+", "", tweet["text"]).strip()
         info = {"title": (words[:90] + ("…" if len(words) > 90 else "")) or "A tweet", "thumbnail": tweet["avatar"],
                 "uploader": "~" + tweet["handle"]}
-    return {"title": info.get("title") or "Your link", "thumb": info.get("thumbnail"),
+    return {"title": info.get("title") or "Your link", "thumb": info.get("thumbnail"), "url": url,
             "duration": int(info.get("duration") or 0), "by": info.get("uploader") or "", "options": options}
 
 
@@ -414,18 +530,20 @@ def probe_video(path):
         return 0, 0, 0
 
 
-def make_gif(url, oid, job_dir, opts, say=no_progress):
+def make_gif(url, oid, job_dir, opts, say=no_progress, source=None):
+    """A GIF from the link's video, or from a video file we already have (source)."""
     best = oid == "gif_best"
     if best:
         secs, cap = GIF_BEST_SECS, 1080                    # width and frame rate come from the clip itself, below
     else:
         width, fps, secs, _ = GIF_PRESETS[oid]
         cap = 720
-    opts.update({"format": f"bestvideo*[height<={cap}]/best[height<={cap}]/best",
-                 "outtmpl": os.path.join(job_dir, "source.%(ext)s")})
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
-    source = first_file(job_dir)
+    if source is None:
+        opts.update({"format": f"bestvideo*[height<={cap}]/best[height<={cap}]/best",
+                     "outtmpl": os.path.join(job_dir, "source.%(ext)s")})
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        source = first_file(job_dir)
     say(None, "Making your GIF")
     out = os.path.join(job_dir, "clip.gif")
     if best:                                               # keep the clip's own size and smoothness, up to the caps
@@ -490,6 +608,24 @@ def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
             say(None, "Writing your scroll")
             found = tweetcard.tweet_info(url, cookie_args(cookies))
             return tweetcard.render_card(found, os.path.join(job_dir, f"tweet-{found['id']}.png"))
+        derived = re.fullmatch(r"(fbmp3|fbgif)(\d+)", oid)
+        if derived:                                        # TikTok's own best file, then the sound or a GIF made from it
+            video = gallery(url, job_dir, cookies, say, only=int(derived.group(2)))
+            if derived.group(1) == "fbgif":
+                return make_gif(url, "gif_best", job_dir, {}, say, source=video)
+            say(None, "Taking out the sound")
+            out = os.path.join(job_dir, "sound.mp3")
+            run_tool(["ffmpeg", "-nostdin", "-y", "-i", video, "-vn", "-codec:a", "libmp3lame", "-q:a", "0", out])
+            os.remove(video)
+            return out
+        if oid == "cover":                                 # the video's cover picture, as one image file
+            say(None, "Getting the cover picture")
+            with yt_dlp.YoutubeDL(ydl_opts(cookies, {"skip_download": True, "writethumbnail": True,
+                                                    "outtmpl": {"default": os.path.join(job_dir, "cover"),
+                                                                "thumbnail": os.path.join(job_dir, "cover.%(ext)s")}}, url=url)) as ydl:
+                ydl.download([url])
+            picture = first_file(job_dir)
+            return profilepic._tidy(picture, os.path.join(job_dir, "cover-picture")) if HAS_PIC else picture
         if oid.startswith("item") and oid[4:].isdigit():
             return gallery(url, job_dir, cookies, say, only=int(oid[4:]))
         opts = ydl_opts(cookies, {
@@ -497,7 +633,7 @@ def fetch(url, oid, job_dir, say=no_progress, expected_mb=None):
             "format_sort": FORMAT_SORT,                       # best quality first (see the top of this file)
             **({"max_filesize": MAX_MB * 1048576} if MAX_MB else {}),
             **make_hooks(say, expected_mb * 1048576 if expected_mb else None),
-        })
+        }, url=url)
         if oid.startswith("v") and oid[1:].isdigit():
             h = int(oid[1:])
             opts["format"] = (f"bestvideo*[height<={h}]+bestaudio/best[height<={h}]" if HAS_FFMPEG

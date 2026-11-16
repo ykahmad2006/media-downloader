@@ -100,7 +100,7 @@ footer{font-size:13px;color:rgba(232,220,196,.8);padding:0 0 44px}footer a{text-
     {% if d.thumb %}<img src="{{ d.thumb }}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}
     <div><h2>{{ d.title }}</h2><p>{{ d.by }}{% if d.by and d.duration %} · {% endif %}{% if d.duration %}{{ d.duration // 60 }}:{{ '%02d'|format(d.duration % 60) }}{% endif %}</p></div>
   </div>
-  {% for kind, name in [("avatar","Profile picture"),("video","Video"),("audio","Audio"),("overlay","Tweet over a photo"),("image","Tweet written as an ancient scroll"),("gif","GIF, small enough for WhatsApp and X"),("item","Each photo and video on its own"),("zip","Everything in one go")] %}
+  {% for kind, name in [("avatar","Profile picture"),("video","Video"),("audio","Audio"),("overlay","Tweet over a photo"),("image","Tweet written as an ancient scroll"),("gif","GIF, small enough for WhatsApp and X"),("cover","Cover picture"),("item","Each photo and video on its own"),("zip","Everything in one go")] %}
     {% set items = d.options|selectattr("kind","equalto",kind)|list %}
     {% if items %}<h3>{{ name }}</h3>
       {% for o in items %}

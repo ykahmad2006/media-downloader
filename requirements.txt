@@ -1,7 +1,7 @@
 flask
 flask-limiter
 gunicorn
-yt-dlp[default]
+yt-dlp[default,curl-cffi]
 gallery-dl
 requests
 pillow
